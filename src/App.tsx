@@ -1,10 +1,70 @@
 import { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Loader2, Trash2, ChevronDown, ChevronUp, Copy, Check, Search, Settings, X } from 'lucide-react';
+import { Mic, Square, Loader2, Trash2, ChevronDown, ChevronUp, Copy, Check, Search, Settings, X, AlertCircle } from 'lucide-react';
 import { GoogleGenAI } from '@google/genai';
 import ReactMarkdown from 'react-markdown';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { ClassSummary } from './types';
+
+// IndexedDB utility for storing large Blobs (audio)
+const DB_NAME = 'DiarioAI_DB';
+const STORE_NAME = 'pending_audio';
+
+const initDB = (): Promise<IDBDatabase> => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+    request.onupgradeneeded = (e) => {
+      const db = (e.target as IDBOpenDBRequest).result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+  });
+};
+
+const saveAudioToDB = async (blob: Blob, duration: number) => {
+  try {
+    const db = await initDB();
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    store.put({ blob, duration }, 'current_audio');
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (e) {
+    console.error('Failed to save audio to DB', e);
+  }
+};
+
+const getAudioFromDB = async (): Promise<{ blob: Blob, duration: number } | null> => {
+  try {
+    const db = await initDB();
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const store = tx.objectStore(STORE_NAME);
+    const request = store.get('current_audio');
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
+  } catch (e) {
+    console.error('Failed to get audio from DB', e);
+    return null;
+  }
+};
+
+const clearAudioFromDB = async () => {
+  try {
+    const db = await initDB();
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    store.delete('current_audio');
+  } catch (e) {
+    console.error('Failed to clear audio from DB', e);
+  }
+};
 
 // We will initialize the AI client dynamically to allow local storage overrides
 const getAIClient = () => {
@@ -31,11 +91,31 @@ export default function App() {
   const [localApiKey, setLocalApiKey] = useState(localStorage.getItem('GEMINI_API_KEY') || '');
   const [pendingAudioBlob, setPendingAudioBlob] = useState<Blob | null>(null);
   const [pendingDuration, setPendingDuration] = useState(0);
+  const [recoveredState, setRecoveredState] = useState(false);
+  const [processingMessage, setProcessingMessage] = useState<string | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
   const startTimeRef = useRef<number | null>(null);
+  const wakeLockRef = useRef<any>(null);
+
+  const requestWakeLock = async () => {
+    try {
+      if ('wakeLock' in navigator) {
+        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+      }
+    } catch (err) {
+      console.log('Wake Lock error:', err);
+    }
+  };
+
+  const releaseWakeLock = () => {
+    if (wakeLockRef.current) {
+      wakeLockRef.current.release().catch(console.error);
+      wakeLockRef.current = null;
+    }
+  };
 
   useEffect(() => {
     const saved = localStorage.getItem('class_summaries');
@@ -46,11 +126,49 @@ export default function App() {
         console.error('Failed to parse summaries', e);
       }
     }
+
+    // Check for recovered state on mount
+    const checkRecoveredState = async () => {
+      const savedState = localStorage.getItem('pending_processing_state');
+      if (savedState) {
+        try {
+          const state = JSON.parse(savedState);
+          const audioData = await getAudioFromDB();
+          
+          if (audioData && audioData.blob) {
+            setPendingAudioBlob(audioData.blob);
+            setPendingDuration(audioData.duration);
+            setCustomPrompt(state.customPrompt || '');
+            setIsAwaitingPrompt(true);
+            setRecoveredState(true);
+            // We don't automatically start processing, we let the user review and click process
+          } else {
+            // Clean up if DB is empty but localStorage has state
+            localStorage.removeItem('pending_processing_state');
+          }
+        } catch (e) {
+          console.error('Failed to recover state', e);
+          localStorage.removeItem('pending_processing_state');
+        }
+      }
+    };
+    
+    checkRecoveredState();
   }, []);
 
   useEffect(() => {
     localStorage.setItem('class_summaries', JSON.stringify(summaries));
   }, [summaries]);
+
+  // Save prompt state whenever it changes if we have pending audio
+  useEffect(() => {
+    if (pendingAudioBlob && isAwaitingPrompt) {
+      localStorage.setItem('pending_processing_state', JSON.stringify({
+        customPrompt,
+        timestamp: Date.now()
+      }));
+    }
+  }, [customPrompt, pendingAudioBlob, isAwaitingPrompt]);
 
   // Sync timer when app comes back to foreground
   useEffect(() => {
@@ -96,10 +214,11 @@ export default function App() {
 
       mediaRecorder.onstop = handleStopRecording;
 
-      mediaRecorder.start(1000);
+      mediaRecorder.start(5000); // Increased chunk size to reduce overhead
       setIsRecording(true);
       setRecordingTime(0);
       startTimeRef.current = Date.now();
+      await requestWakeLock();
       
       // Use absolute time difference to survive background throttling
       timerRef.current = window.setInterval(() => {
@@ -123,6 +242,7 @@ export default function App() {
         clearInterval(timerRef.current);
       }
       startTimeRef.current = null;
+      releaseWakeLock();
     }
   };
 
@@ -138,41 +258,68 @@ export default function App() {
     });
   };
 
-  const handleStopRecording = () => {
+  const handleStopRecording = async () => {
     const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+    const duration = recordingTime;
+    
     setPendingAudioBlob(audioBlob);
-    setPendingDuration(recordingTime);
+    setPendingDuration(duration);
     setIsAwaitingPrompt(true);
+    
+    // Save to persistent storage immediately
+    await saveAudioToDB(audioBlob, duration);
+    localStorage.setItem('pending_processing_state', JSON.stringify({
+      customPrompt: '',
+      timestamp: Date.now()
+    }));
   };
 
-  const cancelProcessing = () => {
+  const cancelProcessing = async () => {
     setIsAwaitingPrompt(false);
     setPendingAudioBlob(null);
     setCustomPrompt('');
     setRecordingTime(0);
+    setRecoveredState(false);
+    
+    // Clear persistent storage
+    await clearAudioFromDB();
+    localStorage.removeItem('pending_processing_state');
   };
 
-  const processAudio = async () => {
+  const processAudio = async (mode: 'full' | 'exercises_only' = 'full') => {
     if (!pendingAudioBlob) return;
     
     setIsProcessing(true);
     setIsAwaitingPrompt(false);
+    setError(null);
+    setProcessingMessage('Preparando audio...');
 
     const ai = getAIClient();
     if (!ai) {
       setError('FALTA LA CLAVE DE API DE GEMINI. Por favor, configúrala en el menú de Ajustes (icono de engranaje).');
       setIsProcessing(false);
-      setPendingAudioBlob(null);
-      setCustomPrompt('');
-      setRecordingTime(0);
+      setIsAwaitingPrompt(true); // Return to prompt screen so audio is not lost
       return;
     }
 
+    await requestWakeLock();
+    let success = false;
+
     try {
-      const base64Audio = await blobToBase64(pendingAudioBlob);
-      
-      const prompt = `
-Eres un asistente experto para profesores de español. Escucharás la grabación de una clase de español.
+      const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB chunks
+      const totalChunks = Math.ceil(pendingAudioBlob.size / CHUNK_SIZE);
+      const partialResults = [];
+
+      for (let i = 0; i < totalChunks; i++) {
+        setProcessingMessage(totalChunks > 1 ? `Procesando parte ${i + 1} de ${totalChunks}...` : 'Procesando audio...');
+        
+        const start = i * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, pendingAudioBlob.size);
+        const chunkBlob = pendingAudioBlob.slice(start, end, pendingAudioBlob.type || 'audio/webm');
+        const base64Audio = await blobToBase64(chunkBlob);
+        
+        const promptFull = `
+Eres un asistente experto para profesores de español. Escucharás ${totalChunks > 1 ? `la parte ${i + 1} de ${totalChunks} de ` : ''}la grabación de una clase de español.
 Tu tarea es analizar el audio y generar un reporte estructurado para el diario de clases.
 
 ${customPrompt.trim() ? `\nOBSERVACIONES Y PEDIDOS ESPECIALES DEL PROFESOR (¡Ten esto muy en cuenta!):\n${customPrompt.trim()}\n` : ''}
@@ -183,32 +330,126 @@ Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura exacta (sin bloq
   "activities": "Descripción de las dinámicas o actividades hechas en clase.",
   "exercises": "Números de página y ejercicios del libro trabajados. Sé muy preciso."
 }
-      `;
+        `;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.1-pro-preview',
-        contents: [
-          {
-            inlineData: {
-              mimeType: pendingAudioBlob.type || 'audio/webm',
-              data: base64Audio
-            }
-          },
-          prompt
-        ]
-      });
+        const promptExercisesOnly = `
+Eres un asistente experto para profesores de español. Escucharás ${totalChunks > 1 ? `la parte ${i + 1} de ${totalChunks} de ` : ''}la grabación de una clase de español.
+Tu ÚNICA tarea es extraer los números de página y los ejercicios del libro que se mencionan o trabajan en la clase. Ignora todo lo demás.
+
+${customPrompt.trim() ? `\nOBSERVACIONES Y PEDIDOS ESPECIALES DEL PROFESOR:\n${customPrompt.trim()}\n` : ''}
+
+Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura exacta (sin bloques de código markdown, solo el JSON puro):
+{
+  "exercises": "Números de página y ejercicios del libro trabajados. Sé muy preciso. Si no hay, indica 'No se mencionaron ejercicios'."
+}
+        `;
+
+        const prompt = mode === 'exercises_only' ? promptExercisesOnly : promptFull;
+
+        const apiCall = ai.models.generateContent({
+          model: 'gemini-3.1-pro-preview',
+          contents: [
+            {
+              inlineData: {
+                mimeType: chunkBlob.type || 'audio/webm',
+                data: base64Audio
+              }
+            },
+            prompt
+          ]
+        });
+
+        // 5 minute timeout per chunk
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('TIMEOUT')), 5 * 60 * 1000)
+        );
+
+        const response = await Promise.race([apiCall, timeoutPromise]) as any;
+        const text = response.text || '{}';
+        const cleanText = text.replace(/\`\`\`json/g, '').replace(/\`\`\`/g, '').trim();
+        
+        try {
+          partialResults.push(JSON.parse(cleanText));
+        } catch (e) {
+          console.warn(`Failed to parse JSON for chunk ${i+1}`, text);
+          partialResults.push({
+            topicSummary: text,
+            activities: '',
+            exercises: ''
+          });
+        }
+      }
+
+      let finalData;
+      
+      if (totalChunks === 1) {
+        finalData = partialResults[0];
+      } else {
+        setProcessingMessage('Sintetizando resultados finales...');
+        
+        const synthesisPromptFull = `
+Eres un asistente experto. He dividido una clase larga en varias partes y he extraído los resúmenes de cada una.
+Aquí tienes los datos parciales en formato JSON:
+${JSON.stringify(partialResults, null, 2)}
+
+Tu tarea es unificar esta información en un único reporte final coherente.
+Elimina redundancias y crea un resumen fluido.
+Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura exacta (sin bloques de código markdown, solo el JSON puro):
+{
+  "topicSummary": "Resumen unificado y claro de los temas gramaticales, léxicos o culturales de toda la clase.",
+  "activities": "Descripción unificada de las dinámicas o actividades hechas en toda la clase.",
+  "exercises": "Todos los números de página y ejercicios del libro trabajados, consolidados."
+}
+        `;
+
+        const synthesisPromptExercisesOnly = `
+Eres un asistente experto. He dividido una clase larga en varias partes y he extraído los ejercicios de cada una.
+Aquí tienes los datos parciales en formato JSON:
+${JSON.stringify(partialResults, null, 2)}
+
+Tu tarea es unificar esta información en un único reporte final.
+Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura exacta (sin bloques de código markdown, solo el JSON puro):
+{
+  "exercises": "Todos los números de página y ejercicios del libro trabajados, consolidados."
+}
+        `;
+
+        const synthesisPrompt = mode === 'exercises_only' ? synthesisPromptExercisesOnly : synthesisPromptFull;
+
+        const apiCall = ai.models.generateContent({
+          model: 'gemini-3.1-pro-preview',
+          contents: synthesisPrompt
+        });
+
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('TIMEOUT')), 2 * 60 * 1000)
+        );
+
+        const response = await Promise.race([apiCall, timeoutPromise]) as any;
+        const text = response.text || '{}';
+        const cleanText = text.replace(/\`\`\`json/g, '').replace(/\`\`\`/g, '').trim();
+        
+        try {
+          finalData = JSON.parse(cleanText);
+        } catch (e) {
+          console.warn('Failed to parse final synthesis JSON', text);
+          finalData = {
+            topicSummary: text,
+            activities: 'Error al sintetizar actividades.',
+            exercises: 'Error al sintetizar ejercicios.'
+          };
+        }
+      }
 
       let content = '';
       let exercises = '';
-      try {
-        const text = response.text || '{}';
-        const cleanText = text.replace(/\`\`\`json/g, '').replace(/\`\`\`/g, '').trim();
-        const data = JSON.parse(cleanText);
-        content = `### Resumen del tema\n${data.topicSummary}\n\n### Actividades realizadas\n${data.activities}\n\n### Ejercicios y páginas del libro\n${data.exercises}`;
-        exercises = data.exercises;
-      } catch (e) {
-        content = response.text || 'ERROR EN LA GENERACIÓN DEL RESUMEN.';
-        exercises = 'No se pudieron extraer los ejercicios aislados.';
+      
+      if (mode === 'exercises_only') {
+        content = `### Ejercicios y páginas del libro\n${finalData.exercises || 'Sin ejercicios'}`;
+        exercises = finalData.exercises || 'No se pudieron extraer los ejercicios aislados.';
+      } else {
+        content = `### Resumen del tema\n${finalData.topicSummary || 'Sin resumen'}\n\n### Actividades realizadas\n${finalData.activities || 'Sin actividades'}\n\n### Ejercicios y páginas del libro\n${finalData.exercises || 'Sin ejercicios'}`;
+        exercises = finalData.exercises || 'No se pudieron extraer los ejercicios aislados.';
       }
 
       const newSummary: ClassSummary = {
@@ -221,14 +462,33 @@ Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura exacta (sin bloq
 
       setSummaries((prev) => [newSummary, ...prev]);
       setExpandedId(newSummary.id); // Auto-expand the new summary
-    } catch (err) {
+      success = true;
+    } catch (err: any) {
       console.error('Error processing audio:', err);
-      setError('ERROR DE PROCESAMIENTO. ARCHIVO DEMASIADO GRANDE O FALLO DE CONEXIÓN.');
+      if (err.message === 'TIMEOUT') {
+        setError('TIEMPO DE ESPERA AGOTADO (5 min). La IA tardó demasiado en responder. Reintenta o usa un audio más corto.');
+      } else {
+        setError(`ERROR DE PROCESAMIENTO: ${err.message || 'Fallo de conexión o archivo muy grande.'}`);
+      }
     } finally {
       setIsProcessing(false);
-      setPendingAudioBlob(null);
-      setCustomPrompt('');
-      setRecordingTime(0);
+      setProcessingMessage(null);
+      releaseWakeLock();
+      
+      if (success) {
+        // Only clear the audio if processing was successful
+        setPendingAudioBlob(null);
+        setCustomPrompt('');
+        setRecordingTime(0);
+        setRecoveredState(false);
+        
+        // Clear persistent storage on success
+        clearAudioFromDB();
+        localStorage.removeItem('pending_processing_state');
+      } else {
+        // If it failed, go back to the prompt screen so the user can retry
+        setIsAwaitingPrompt(true);
+      }
     }
   };
 
@@ -298,12 +558,24 @@ Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura exacta (sin bloq
         <section className="py-16 flex flex-col items-center justify-center border-b border-neutral-800">
           
           <div className="text-center mb-12">
+            {recoveredState && isAwaitingPrompt && (
+              <div className="mb-6 inline-flex items-center gap-2 bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 px-4 py-2 rounded-none font-mono text-xs uppercase tracking-wider">
+                <AlertCircle className="w-4 h-4" />
+                Audio recuperado de una sesión anterior
+              </div>
+            )}
             <div className="font-mono text-xs text-neutral-500 tracking-[0.2em] uppercase mb-4">
               {isAwaitingPrompt ? 'Esperando instrucciones...' : isRecording ? 'Grabando...' : isProcessing ? 'Procesando...' : 'Estado: Inactivo'}
             </div>
             <div className={`font-mono text-7xl md:text-8xl font-thin tracking-tighter transition-colors duration-500 ${isRecording ? 'text-white' : 'text-neutral-700'}`}>
               {formatTime(isAwaitingPrompt ? pendingDuration : recordingTime)}
             </div>
+            {isProcessing && (
+              <div className="mt-6 font-mono text-xs text-[#ff3333] animate-pulse uppercase tracking-widest flex flex-col items-center gap-2">
+                <span>{processingMessage || 'Procesando...'}</span>
+                <span>¡No apagues la pantalla ni cierres la app!</span>
+              </div>
+            )}
           </div>
 
           {isAwaitingPrompt ? (
@@ -317,18 +589,24 @@ Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura exacta (sin bloq
                 placeholder="Ej: Presta especial atención a los ejercicios de la página 42..."
                 className="w-full bg-[#050505] border border-neutral-800 text-neutral-200 p-4 font-sans text-sm focus:outline-none focus:border-white transition-colors resize-none h-32 mb-6 placeholder:text-neutral-700"
               />
-              <div className="flex gap-4">
+              <div className="flex flex-col gap-3">
                 <button
-                  onClick={cancelProcessing}
-                  className="flex-1 font-mono text-xs text-neutral-400 border border-neutral-800 hover:bg-neutral-900 hover:text-white py-3 uppercase tracking-wider transition-colors"
+                  onClick={() => processAudio('full')}
+                  className="w-full font-mono text-xs text-black bg-white hover:bg-neutral-200 py-3 uppercase tracking-wider transition-colors font-bold"
                 >
-                  Descartar
+                  Procesar Completo
                 </button>
                 <button
-                  onClick={processAudio}
-                  className="flex-1 font-mono text-xs text-black bg-white hover:bg-neutral-200 py-3 uppercase tracking-wider transition-colors font-bold"
+                  onClick={() => processAudio('exercises_only')}
+                  className="w-full font-mono text-xs text-neutral-200 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 py-3 uppercase tracking-wider transition-colors"
                 >
-                  Procesar
+                  Solo Ejercicios
+                </button>
+                <button
+                  onClick={cancelProcessing}
+                  className="w-full font-mono text-xs text-neutral-400 border border-neutral-800 hover:bg-neutral-900 hover:text-[#ff3333] py-3 uppercase tracking-wider transition-colors"
+                >
+                  Descartar
                 </button>
               </div>
             </div>
