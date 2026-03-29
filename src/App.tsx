@@ -1,12 +1,18 @@
 import { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Loader2, Trash2, ChevronDown, ChevronUp, Copy, Check, Search } from 'lucide-react';
+import { Mic, Square, Loader2, Trash2, ChevronDown, ChevronUp, Copy, Check, Search, Settings, X } from 'lucide-react';
 import { GoogleGenAI } from '@google/genai';
 import ReactMarkdown from 'react-markdown';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { ClassSummary } from './types';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// We will initialize the AI client dynamically to allow local storage overrides
+const getAIClient = () => {
+  const storedKey = localStorage.getItem('GEMINI_API_KEY');
+  const envKey = process.env.GEMINI_API_KEY;
+  const key = storedKey || envKey;
+  return key ? new GoogleGenAI({ apiKey: key }) : null;
+};
 
 export default function App() {
   const [isRecording, setIsRecording] = useState(false);
@@ -21,6 +27,8 @@ export default function App() {
   const [isAwaitingPrompt, setIsAwaitingPrompt] = useState(false);
   const [customPrompt, setCustomPrompt] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showSettings, setShowSettings] = useState(false);
+  const [localApiKey, setLocalApiKey] = useState(localStorage.getItem('GEMINI_API_KEY') || '');
   const [pendingAudioBlob, setPendingAudioBlob] = useState<Blob | null>(null);
   const [pendingDuration, setPendingDuration] = useState(0);
 
@@ -149,6 +157,17 @@ export default function App() {
     
     setIsProcessing(true);
     setIsAwaitingPrompt(false);
+
+    const ai = getAIClient();
+    if (!ai) {
+      setError('FALTA LA CLAVE DE API DE GEMINI. Por favor, configúrala en el menú de Ajustes (icono de engranaje).');
+      setIsProcessing(false);
+      setPendingAudioBlob(null);
+      setCustomPrompt('');
+      setRecordingTime(0);
+      return;
+    }
+
     try {
       const base64Audio = await blobToBase64(pendingAudioBlob);
       
@@ -260,8 +279,17 @@ Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura exacta (sin bloq
             Análisis de Clases
           </p>
         </div>
-        <div className="font-mono text-xs text-neutral-600 uppercase">
-          v1.0.0
+        <div className="flex items-center gap-4">
+          <div className="font-mono text-xs text-neutral-600 uppercase hidden sm:block">
+            v1.0.0
+          </div>
+          <button 
+            onClick={() => setShowSettings(true)}
+            className="text-neutral-500 hover:text-white transition-colors p-2 border border-transparent hover:border-neutral-800"
+            title="Configuración"
+          >
+            <Settings className="w-5 h-5" />
+          </button>
         </div>
       </header>
 
@@ -470,6 +498,74 @@ Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura exacta (sin bloq
                 className="font-mono text-xs text-black bg-[#ff3333] hover:bg-red-600 px-4 py-2 uppercase tracking-wider transition-colors font-bold"
               >
                 Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-[#050505] border border-neutral-800 p-6 max-w-lg w-full shadow-2xl overflow-y-auto max-h-[90vh]">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="font-display text-xl font-bold text-white uppercase tracking-tight">
+                Configuración de API
+              </h3>
+              <button onClick={() => setShowSettings(false)} className="text-neutral-500 hover:text-white transition-colors">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="prose prose-invert prose-sm max-w-none mb-8 text-neutral-400">
+              <h4 className="text-white font-mono uppercase tracking-wider text-xs mb-3 border-b border-neutral-800 pb-2">Paso 1: Conseguir la API Key</h4>
+              <ol className="list-decimal pl-4 mb-6 space-y-2">
+                <li>Ve a <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-white underline hover:text-neutral-300">Google AI Studio</a>.</li>
+                <li>Inicia sesión con tu cuenta de Google.</li>
+                <li>Haz clic en el botón azul <strong>"Create API Key"</strong>.</li>
+                <li>Copia la clave generada (es un texto largo que empieza con "AIza...").</li>
+              </ol>
+
+              <h4 className="text-white font-mono uppercase tracking-wider text-xs mb-3 border-b border-neutral-800 pb-2">Paso 2: Guardar la clave</h4>
+              <p className="mb-2">
+                <strong>Opción A (Aquí):</strong> Pégala abajo. Se guardará solo en este navegador (ideal para uso personal).<br/>
+                <strong>Opción B (Vercel):</strong> Ve a tu proyecto en Vercel &gt; Settings &gt; Environment Variables. Añade <code>GEMINI_API_KEY</code> y pega tu clave.
+              </p>
+            </div>
+
+            <div className="mb-8">
+              <label className="block font-mono text-xs text-neutral-400 uppercase tracking-wider mb-2 text-left">
+                Tu Gemini API Key Local
+              </label>
+              <input
+                type="password"
+                value={localApiKey}
+                onChange={(e) => setLocalApiKey(e.target.value)}
+                placeholder="AIzaSy..."
+                className="w-full bg-[#0a0a0a] border border-neutral-800 text-white p-4 font-mono text-sm focus:outline-none focus:border-white transition-colors placeholder:text-neutral-700"
+              />
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setLocalApiKey('');
+                  localStorage.removeItem('GEMINI_API_KEY');
+                }}
+                className="font-mono text-xs text-[#ff3333] border border-neutral-800 hover:border-[#ff3333] hover:bg-[#ff3333]/10 px-4 py-3 uppercase tracking-wider transition-colors"
+              >
+                Borrar Key
+              </button>
+              <button
+                onClick={() => {
+                  if (localApiKey.trim()) {
+                    localStorage.setItem('GEMINI_API_KEY', localApiKey.trim());
+                  }
+                  setShowSettings(false);
+                }}
+                className="font-mono text-xs text-black bg-white hover:bg-neutral-200 px-4 py-3 uppercase tracking-wider transition-colors font-bold"
+              >
+                Guardar
               </button>
             </div>
           </div>
