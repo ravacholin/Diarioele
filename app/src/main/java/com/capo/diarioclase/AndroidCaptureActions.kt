@@ -1,0 +1,26 @@
+package com.capo.diarioclase
+import android.Manifest
+import android.content.*
+import android.content.pm.PackageManager
+import android.os.BatteryManager
+import androidx.core.content.ContextCompat
+import com.capo.diarioclase.data.db.*
+import com.capo.diarioclase.recording.*
+import com.capo.diarioclase.recording.service.RecordingService
+import com.capo.diarioclase.ui.capture.CaptureActions
+import com.capo.diarioclase.processing.evidence.InterpretationMode
+import com.capo.diarioclase.processing.work.ProcessingOutcome
+import com.capo.diarioclase.diary.cleanup.CleanupOutcome
+class AndroidCaptureActions(private val context:Context,private val app:DiarioClaseApp):CaptureActions{
+ override suspend fun startNewDay(){val battery=context.getSystemService(BatteryManager::class.java).getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);when(val r=PreflightChecker().check(context.filesDir.usableSpace,battery,ContextCompat.checkSelfPermission(context,Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)){PreflightResult.Ready->{val id=app.repository.createSession(null);start(RecordingService.ACTION_START,id)};is PreflightResult.Blocked->error(when(r.reason){PreflightReason.INSUFFICIENT_SPACE->"Falta espacio libre";PreflightReason.MICROPHONE_PERMISSION->"Falta permiso de micrófono";PreflightReason.CRITICAL_BATTERY->"Batería demasiado baja"})}}
+ override suspend fun resume(id:SessionId)=start(RecordingService.ACTION_START,id)
+ override suspend fun pause(){ContextCompat.startForegroundService(context,Intent(context,RecordingService::class.java).setAction(RecordingService.ACTION_PAUSE))}
+ override suspend fun markHomework(sessionId:SessionId,blockId:BlockId){val b=app.database.sessions().block(blockId.value)?:return;app.recovery.markHomework(sessionId,blockId,b.startedAtEpochMs,System.currentTimeMillis())}
+ override suspend fun finalizeDay(id:SessionId,state:SessionState){if(state==SessionState.RECORDING)ContextCompat.startForegroundService(context,Intent(context,RecordingService::class.java).setAction(RecordingService.ACTION_FINALIZE)) else app.repository.finalizeSession(id)}
+ override suspend fun process(id:SessionId,mode:InterpretationMode):ProcessingOutcome=app.transcriptionCoordinator.process(id,mode)
+ override suspend fun requestLanguageModel(){app.transcriptionEngine.requestSpanishModelDownload()}
+ override suspend fun saveDraft(draft:DiaryDraftEntity){app.processingStore.saveEditedDraft(draft)}
+ override suspend fun approveAndClean(draft:DiaryDraftEntity):CleanupOutcome=app.cleanupCoordinator.approveAndClean(SessionId(draft.sessionId),draft)
+ override suspend fun retryCleanup(sessionId:SessionId):CleanupOutcome=app.cleanupCoordinator.retryCleanup(sessionId)
+ private fun start(action:String,id:SessionId){ContextCompat.startForegroundService(context,Intent(context,RecordingService::class.java).setAction(action).putExtra(RecordingService.EXTRA_SESSION_ID,id.value))}
+}

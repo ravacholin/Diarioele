@@ -1,7 +1,0 @@
-{
-  "name": "Diario de Clases AI",
-  "description": "App para grabar clases de español y generar resúmenes automáticos con detalles de ejercicios y páginas usando IA.",
-  "requestFramePermissions": [
-    "microphone"
-  ]
-}
