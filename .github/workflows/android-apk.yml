@@ -31,7 +31,10 @@ jobs:
         run: chmod +x gradlew
 
       - name: Probar y compilar
-        run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
+        run: >-
+          ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
+          --max-workers=2
+          -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
 
       - name: Publicar APK
         uses: actions/upload-artifact@v4
