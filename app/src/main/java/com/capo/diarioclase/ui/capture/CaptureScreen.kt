@@ -19,6 +19,9 @@ import androidx.compose.ui.unit.sp
 import com.capo.diarioclase.data.db.*
 import com.capo.diarioclase.diary.DiaryClipboardFormatter
 import com.capo.diarioclase.processing.evidence.*
+import com.capo.diarioclase.processing.transcription.SpanishModelDownloadState
+import com.capo.diarioclase.processing.transcription.TranscriptionFailure
+import com.capo.diarioclase.processing.transcription.modelAllowsProcessing
 
 @Composable
 fun CaptureScreen(state:CaptureUiState,onStart:()->Unit,onPause:()->Unit,onResume:()->Unit,onMark:()->Unit,onFinalize:()->Unit,onProcess:(InterpretationMode)->Unit,onMode:(InterpretationMode,String,String,String,String,String)->Unit,onRequestModel:()->Unit,onSave:(String,String,String,String,String)->Unit,onApprove:(String,String,String,String,String)->Unit,onRetryCleanup:()->Unit,interpretationMode:InterpretationMode=InterpretationMode.CONSERVATIVE){
@@ -45,7 +48,7 @@ fun CaptureScreen(state:CaptureUiState,onStart:()->Unit,onPause:()->Unit,onResum
   item{Spacer(Modifier.height(24.dp));AppLabel();Spacer(Modifier.height(36.dp));Text(if(state.status==CaptureStatus.PROCESSING)"PROCESANDO" else "DÍA FINALIZADO",fontSize=38.sp,fontWeight=FontWeight.Black);Text(report.pedagogicalDate,color=Color.LightGray)}
   item{VerificationBox(report);playbackError?.let{Text(it,modifier=Modifier.padding(top=12.dp))}}
   items(report.blocks,key={it.id.value}){block->BlockReport(block,playingId,::toggle)}
-  item{HorizontalDivider(color=Color.DarkGray);Text("TRANSCRIPCIÓN LOCAL",fontSize=12.sp,fontWeight=FontWeight.Bold,letterSpacing=2.sp);Spacer(Modifier.height(8.dp));Text(if(state.status==CaptureStatus.PROCESSING)"EN CURSO" else "LISTA PARA INICIAR",fontSize=24.sp,fontWeight=FontWeight.Black);Text(state.message.orEmpty(),color=Color.LightGray);Spacer(Modifier.height(14.dp));if(state.status==CaptureStatus.PROCESSING)LinearProgressIndicator(Modifier.fillMaxWidth(),color=Color.White,trackColor=Color.DarkGray)else{MonoButton(if(report.segments.any{it.state==SegmentState.FAILED})"REINTENTAR" else "PROCESAR AUDIO",report.allAudioReady,{onProcess(interpretationMode)});Spacer(Modifier.height(8.dp));TextButton(onClick=onRequestModel){Text("DESCARGAR ESPAÑOL LOCAL")}}}
+  item{HorizontalDivider(color=Color.DarkGray);Text("TRANSCRIPCIÓN LOCAL",fontSize=12.sp,fontWeight=FontWeight.Bold,letterSpacing=2.sp);Spacer(Modifier.height(8.dp));Text(if(state.status==CaptureStatus.PROCESSING)"EN CURSO" else "LISTA PARA INICIAR",fontSize=24.sp,fontWeight=FontWeight.Black);Text(state.message.orEmpty(),color=Color.LightGray);Spacer(Modifier.height(14.dp));if(state.status==CaptureStatus.PROCESSING)LinearProgressIndicator(Modifier.fillMaxWidth(),color=Color.White,trackColor=Color.DarkGray)else{val languageFailure=report.segments.any{it.lastTranscriptionFailure==TranscriptionFailure.LANGUAGE_UNAVAILABLE.name};val canProcess=report.allAudioReady&&!state.busy&&modelAllowsProcessing(languageFailure,state.modelDownload);MonoButton(if(report.segments.any{it.state==SegmentState.FAILED})"REINTENTAR" else "PROCESAR AUDIO",canProcess,{onProcess(interpretationMode)});Spacer(Modifier.height(8.dp));if(state.modelDownload is SpanishModelDownloadState.Downloading)LinearProgressIndicator(Modifier.fillMaxWidth(),color=Color.White,trackColor=Color.DarkGray);TextButton(onClick=onRequestModel,enabled=!state.busy){Text(if(state.modelDownload is SpanishModelDownloadState.Scheduled)"VERIFICAR DESCARGA" else "COMPROBAR ESPAÑOL LOCAL")}}}
   item{Text("El audio se conserva durante toda esta fase. Un fallo de transcripción no lo elimina.",color=Color.LightGray,fontSize=12.sp);Spacer(Modifier.height(8.dp));MonoButton("COMENZAR OTRO DÍA",state.status!=CaptureStatus.PROCESSING,onStart,false);Spacer(Modifier.height(24.dp))}
  }
 }

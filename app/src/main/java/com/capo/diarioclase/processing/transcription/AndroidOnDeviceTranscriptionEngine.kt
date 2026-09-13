@@ -217,6 +217,7 @@ class AndroidOnDeviceTranscriptionEngine(private val context: Context) : Transcr
         })
     }
 
+    @androidx.annotation.RequiresApi(33)
     private fun RecognitionSupport.toSpanishChoice() = chooseSpanishModel(
         installedOnDeviceLanguages,
         pendingOnDeviceLanguages,

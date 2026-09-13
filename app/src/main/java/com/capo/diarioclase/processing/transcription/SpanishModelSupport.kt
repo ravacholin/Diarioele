@@ -27,6 +27,11 @@ fun chooseSpanishModel(
     return SpanishModelChoice(null, SpanishModelAvailability.UNSUPPORTED)
 }
 
+fun modelAllowsProcessing(
+    hasLanguageFailure: Boolean,
+    state: SpanishModelDownloadState?,
+): Boolean = !hasLanguageFailure || state is SpanishModelDownloadState.Ready
+
 private fun preferredSpanish(languages: List<String>): String? {
     val spanish = languages.filter { it.replace('_', '-').startsWith("es", ignoreCase = true) }
     return spanish.firstOrNull { it.replace('_', '-').equals("es-AR", ignoreCase = true) }
