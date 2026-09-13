@@ -5,6 +5,7 @@ import com.capo.diarioclase.diary.cleanup.CleanupOutcome
 import com.capo.diarioclase.diary.DiaryEntry
 import com.capo.diarioclase.processing.evidence.InterpretationMode
 import com.capo.diarioclase.processing.transcription.TranscriptionFailure
+import com.capo.diarioclase.processing.transcription.SpanishModelDownloadState
 import com.capo.diarioclase.processing.work.ProcessingOutcome
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.CompletableDeferred
@@ -102,6 +103,17 @@ class CaptureViewModelTest {
   val report=RecordingReport(SessionId("s"),"2026-09-11",listOf(BlockRecordingSummary(BlockId("b"),1,10_000,BlockCloseReason.FINALIZED,listOf(failed))),SessionState.TRANSCRIBING)
   val vm=CaptureViewModel(UiSessions(null,report),UiActions(),backgroundScope);runCurrent()
   assertEquals("Este teléfono no admite desgrabar el audio guardado con el motor local. El audio sigue seguro",vm.state.value.message)
+ }
+ @Test fun `scheduled language download remains visible instead of claiming completion`()=runTest{
+  val actions=object:CaptureActions by UiActions(){
+   override suspend fun requestLanguageModel(onUpdate:(SpanishModelDownloadState)->Unit):SpanishModelDownloadState{
+    onUpdate(SpanishModelDownloadState.Downloading("es-ES",40))
+    return SpanishModelDownloadState.Scheduled("es-ES")
+   }
+  }
+  val vm=reviewViewModel(actions,backgroundScope);runCurrent();vm.onRequestModel();runCurrent()
+  assertEquals(SpanishModelDownloadState.Scheduled("es-ES"),vm.state.value.modelDownload)
+  assertEquals("Descarga de español programada por Android. Todavía no está lista",vm.state.value.message)
  }
  private fun reviewViewModel(actions:UiActions,scope:kotlinx.coroutines.CoroutineScope):CaptureViewModel{
   val report=RecordingReport(SessionId("s"),"2026-09-11",emptyList(),SessionState.AWAITING_REVIEW);val draft=DiaryDraftEntity("draft","s","CONSERVATIVE","tema","actividad","1","2","tarea",1)
