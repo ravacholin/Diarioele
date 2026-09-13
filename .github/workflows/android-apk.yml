@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - android-phase3
+      - main
 
 permissions:
   contents: read
