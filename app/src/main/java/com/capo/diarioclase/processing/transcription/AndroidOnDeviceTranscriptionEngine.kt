@@ -71,17 +71,32 @@ class AndroidOnDeviceTranscriptionEngine(private val context: Context) : Transcr
     }
 
     @SuppressLint("NewApi")
-    suspend fun requestSpanishModelDownload() = withContext(Dispatchers.Main.immediate) {
-        if (Build.VERSION.SDK_INT < 33 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) return@withContext
+    suspend fun requestSpanishModelDownload(
+        onUpdate: (SpanishModelDownloadState) -> Unit = {},
+    ): SpanishModelDownloadState = withContext(Dispatchers.Main.immediate) {
+        if (Build.VERSION.SDK_INT < 33 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(context))
+            return@withContext SpanishModelDownloadState.Unsupported
         val recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
-        if (Build.VERSION.SDK_INT >= 34) recognizer.triggerModelDownload(baseIntent(), context.mainExecutor, object : ModelDownloadListener {
-            override fun onProgress(completedPercent: Int) = Unit
-            override fun onSuccess() = recognizer.destroy()
-            override fun onScheduled() = recognizer.destroy()
-            override fun onError(error: Int) = recognizer.destroy()
-        }) else {
-            recognizer.triggerModelDownload(baseIntent())
-            android.os.Handler(context.mainLooper).postDelayed({ recognizer.destroy() }, 5_000)
+        try {
+            onUpdate(SpanishModelDownloadState.Checking)
+            when (val support = querySpanishSupport(recognizer)) {
+                is SpanishSupportQuery.Error -> SpanishModelDownloadState.Failed(support.errorCode)
+                is SpanishSupportQuery.Available -> when (support.choice.availability) {
+                    SpanishModelAvailability.READY -> SpanishModelDownloadState.Ready(support.choice.languageTag!!)
+                    SpanishModelAvailability.PENDING -> SpanishModelDownloadState.Scheduled(support.choice.languageTag!!)
+                    SpanishModelAvailability.UNSUPPORTED -> SpanishModelDownloadState.Unsupported
+                    SpanishModelAvailability.DOWNLOADABLE -> {
+                        val languageTag = support.choice.languageTag!!
+                        if (Build.VERSION.SDK_INT >= 34) downloadSpanishModel(recognizer, languageTag, onUpdate)
+                        else {
+                            recognizer.triggerModelDownload(baseIntent(languageTag))
+                            SpanishModelDownloadState.Scheduled(languageTag)
+                        }
+                    }
+                }
+            }
+        } finally {
+            recognizer.destroy()
         }
     }
 
@@ -144,21 +159,21 @@ class AndroidOnDeviceTranscriptionEngine(private val context: Context) : Transcr
         continuation.invokeOnCancellation {
             completeOnMain(null)
         }
-        val intent = baseIntent().apply {
-            putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, audioSource)
-            putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, 1)
-            putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
-            putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, 16_000)
-            putExtra(RecognizerIntent.EXTRA_SEGMENTED_SESSION, RecognizerIntent.EXTRA_AUDIO_SOURCE)
-        }
-        recognizer.checkRecognitionSupport(intent, context.mainExecutor, object : RecognitionSupportCallback {
+        recognizer.checkRecognitionSupport(baseIntent(null), context.mainExecutor, object : RecognitionSupportCallback {
             override fun onSupportResult(recognitionSupport: RecognitionSupport) {
                 synchronized(lifecycleLock) {
                     if (done || !continuation.isActive) return
-                    val spanishReady = recognitionSupport.installedOnDeviceLanguages.any { it.startsWith("es", ignoreCase = true) }
-                    if (!spanishReady) {
+                    val choice = recognitionSupport.toSpanishChoice()
+                    if (choice.availability != SpanishModelAvailability.READY) {
                         finish(TranscriptResult.Failure(TranscriptionFailure.LANGUAGE_UNAVAILABLE, false, "El paquete local de español no está instalado"))
                         return
+                    }
+                    val intent = baseIntent(choice.languageTag).apply {
+                        putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, audioSource)
+                        putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, 1)
+                        putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
+                        putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, 16_000)
+                        putExtra(RecognizerIntent.EXTRA_SEGMENTED_SESSION, RecognizerIntent.EXTRA_AUDIO_SOURCE)
                     }
                     try {
                         recognizer.startListening(intent)
@@ -171,12 +186,54 @@ class AndroidOnDeviceTranscriptionEngine(private val context: Context) : Transcr
         })
     }
 
-    private fun baseIntent() = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+    @androidx.annotation.RequiresApi(33)
+    private suspend fun querySpanishSupport(recognizer: SpeechRecognizer): SpanishSupportQuery = suspendCancellableCoroutine { continuation ->
+        recognizer.checkRecognitionSupport(baseIntent(null), context.mainExecutor, object : RecognitionSupportCallback {
+            override fun onSupportResult(recognitionSupport: RecognitionSupport) {
+                if (continuation.isActive) continuation.resume(SpanishSupportQuery.Available(recognitionSupport.toSpanishChoice()))
+            }
+            override fun onError(errorCode: Int) {
+                if (continuation.isActive) continuation.resume(SpanishSupportQuery.Error(errorCode))
+            }
+        })
+    }
+
+    @androidx.annotation.RequiresApi(34)
+    private suspend fun downloadSpanishModel(
+        recognizer: SpeechRecognizer,
+        languageTag: String,
+        onUpdate: (SpanishModelDownloadState) -> Unit,
+    ): SpanishModelDownloadState = suspendCancellableCoroutine { continuation ->
+        fun finish(state: SpanishModelDownloadState) {
+            if (continuation.isActive) continuation.resume(state)
+        }
+        recognizer.triggerModelDownload(baseIntent(languageTag), context.mainExecutor, object : ModelDownloadListener {
+            override fun onProgress(completedPercent: Int) {
+                onUpdate(SpanishModelDownloadState.Downloading(languageTag, completedPercent.coerceIn(0, 100)))
+            }
+            override fun onSuccess() = finish(SpanishModelDownloadState.Ready(languageTag))
+            override fun onScheduled() = finish(SpanishModelDownloadState.Scheduled(languageTag))
+            override fun onError(error: Int) = finish(SpanishModelDownloadState.Failed(error))
+        })
+    }
+
+    private fun RecognitionSupport.toSpanishChoice() = chooseSpanishModel(
+        installedOnDeviceLanguages,
+        pendingOnDeviceLanguages,
+        supportedOnDeviceLanguages,
+    )
+
+    private fun baseIntent(languageTag: String? = "es-AR") = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
         putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-        putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-AR")
+        languageTag?.let { putExtra(RecognizerIntent.EXTRA_LANGUAGE, it) }
         putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
         putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
     }
+}
+
+private sealed interface SpanishSupportQuery {
+    data class Available(val choice: SpanishModelChoice) : SpanishSupportQuery
+    data class Error(val errorCode: Int) : SpanishSupportQuery
 }
 
 /**
