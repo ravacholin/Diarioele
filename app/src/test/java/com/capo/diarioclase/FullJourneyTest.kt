@@ -17,6 +17,7 @@ import com.capo.diarioclase.data.db.SessionState
 import com.capo.diarioclase.data.repository.IdProvider
 import com.capo.diarioclase.data.repository.RoomDiaryRepository
 import com.capo.diarioclase.data.repository.RoomSessionRepository
+import com.capo.diarioclase.data.repository.SessionRepository
 import com.capo.diarioclase.diary.DiaryClipboardFormatter
 import com.capo.diarioclase.diary.DiaryEntry
 import com.capo.diarioclase.diary.cleanup.CleanupCoordinator
@@ -28,6 +29,8 @@ import com.capo.diarioclase.ui.capture.CaptureActions
 import com.capo.diarioclase.ui.capture.CaptureStatus
 import com.capo.diarioclase.ui.capture.CaptureViewModel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -137,7 +140,15 @@ class FullJourneyTest {
                 val pending = repository.observeLatestCleanupPendingRecording().first() ?: error("missing pending recording")
                 val permanent = reopenedArchive.getBySession(sessionId) ?: error("missing permanent diary")
                 val actions = NoopCaptureActions()
-                val capture = CaptureViewModel(repository, actions, backgroundScope, diaries = reopenedArchive.observeEntries(""))
+                // Persistence is verified through the reopened Room repositories above. Feed those
+                // recovered values directly to the UI boundary so this assertion does not race
+                // Room's real executor or keep a database collector alive after close().
+                val capture = CaptureViewModel(
+                    RecoverySessionRepository(pending),
+                    actions,
+                    backgroundScope,
+                    diaries = flowOf(listOf(permanent)),
+                )
                 runCurrent()
 
                 assertEquals(recoveredState, pending.state)
@@ -180,5 +191,18 @@ class FullJourneyTest {
             retryCalls += 1
             error("retry must be user initiated")
         }
+    }
+
+    private class RecoverySessionRepository(
+        private val pending: com.capo.diarioclase.data.db.RecordingReport,
+    ) : SessionRepository {
+        override fun observeActiveSession(): Flow<com.capo.diarioclase.data.db.SessionAggregate?> = flowOf(null)
+        override fun observeLatestFinalizedRecording(): Flow<com.capo.diarioclase.data.db.RecordingReport?> = flowOf(null)
+        override fun observeLatestCleanupPendingRecording(): Flow<com.capo.diarioclase.data.db.RecordingReport?> = flowOf(pending)
+        override suspend fun createSession(level: CerLevel?) = error("not used")
+        override suspend fun startBlock(sessionId: SessionId) = error("not used")
+        override suspend fun closeBlock(blockId: com.capo.diarioclase.data.db.BlockId, reason: BlockCloseReason) = error("not used")
+        override suspend fun finalizeSession(sessionId: SessionId) = error("not used")
+        override suspend fun updateSessionState(sessionId: SessionId, state: SessionState) = error("not used")
     }
 }

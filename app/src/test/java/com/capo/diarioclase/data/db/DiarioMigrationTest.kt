@@ -34,7 +34,7 @@ class DiarioMigrationTest {
                         db.execSQL("CREATE TABLE audio_segments (id TEXT NOT NULL PRIMARY KEY,blockId TEXT NOT NULL,ordinal INTEGER NOT NULL,path TEXT NOT NULL,byteCount INTEGER NOT NULL,durationMs INTEGER NOT NULL,sha256 TEXT,state TEXT NOT NULL,transcriptionAttempts INTEGER NOT NULL,FOREIGN KEY(blockId) REFERENCES blocks(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
                         db.execSQL("CREATE INDEX index_audio_segments_blockId ON audio_segments(blockId)")
                         db.execSQL("CREATE UNIQUE INDEX index_audio_segments_path ON audio_segments(path)")
-                        db.execSQL("CREATE TABLE markers (id TEXT NOT NULL PRIMARY KEY,sessionId TEXT NOT NULL,blockId TEXT NOT NULL,absoluteEpochMs INTEGER NOT NULL,offsetMs INTEGER NOT NULL,type TEXT NOT NULL,note TEXT,FOREIGN KEY(sessionId) REFERENCES sessions(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+                        db.execSQL("CREATE TABLE markers (id TEXT NOT NULL PRIMARY KEY,sessionId TEXT NOT NULL,blockId TEXT NOT NULL,absoluteEpochMs INTEGER NOT NULL,offsetMs INTEGER NOT NULL,type TEXT NOT NULL,note TEXT,FOREIGN KEY(blockId) REFERENCES blocks(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
                         db.execSQL("CREATE INDEX index_markers_sessionId ON markers(sessionId)")
                         db.execSQL("CREATE INDEX index_markers_blockId ON markers(blockId)")
                         DiarioDatabase.MIGRATION_1_2.migrate(db)
