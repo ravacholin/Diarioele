@@ -30,10 +30,22 @@ jobs:
       - name: Habilitar Gradle Wrapper
         run: chmod +x gradlew
 
-      - name: Probar y compilar
+      - name: Ejecutar pruebas
+        id: tests
+        continue-on-error: true
         run: >-
-          ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
-          --max-workers=2
+          ./gradlew testDebugUnitTest --max-workers=2
+          -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
+
+      - name: Mostrar pruebas fallidas
+        if: steps.tests.outcome == 'failure'
+        run: |
+          find app/build/test-results/testDebugUnitTest -name '*.xml' -exec grep -l '<failure' {} \; -exec cat {} \;
+          exit 1
+
+      - name: Analizar y compilar
+        run: >-
+          ./gradlew lintDebug assembleDebug assembleDebugAndroidTest --max-workers=2
           -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
 
       - name: Publicar APK
