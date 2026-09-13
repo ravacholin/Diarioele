@@ -115,7 +115,7 @@ class CaptureViewModelTest {
   assertEquals(SpanishModelDownloadState.Scheduled("es-ES"),vm.state.value.modelDownload)
   assertEquals("Descarga de español programada por Android. Todavía no está lista",vm.state.value.message)
  }
- private fun reviewViewModel(actions:UiActions,scope:kotlinx.coroutines.CoroutineScope):CaptureViewModel{
+ private fun reviewViewModel(actions:CaptureActions,scope:kotlinx.coroutines.CoroutineScope):CaptureViewModel{
   val report=RecordingReport(SessionId("s"),"2026-09-11",emptyList(),SessionState.AWAITING_REVIEW);val draft=DiaryDraftEntity("draft","s","CONSERVATIVE","tema","actividad","1","2","tarea",1)
   return CaptureViewModel(UiSessions(null,report),actions,scope,flowOf(draft))
  }
