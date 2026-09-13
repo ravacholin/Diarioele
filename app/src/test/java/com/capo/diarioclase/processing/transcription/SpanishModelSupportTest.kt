@@ -1,6 +1,8 @@
 package com.capo.diarioclase.processing.transcription
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SpanishModelSupportTest {
@@ -52,5 +54,13 @@ class SpanishModelSupportTest {
         )
 
         assertEquals(SpanishModelChoice(null, SpanishModelAvailability.UNSUPPORTED), choice)
+    }
+
+    @Test fun `language failure can only be retried after Spanish is confirmed ready`() {
+        assertFalse(modelAllowsProcessing(true, null))
+        assertFalse(modelAllowsProcessing(true, SpanishModelDownloadState.Scheduled("es-ES")))
+        assertFalse(modelAllowsProcessing(true, SpanishModelDownloadState.Downloading("es-ES", 60)))
+        assertTrue(modelAllowsProcessing(true, SpanishModelDownloadState.Ready("es-ES")))
+        assertTrue(modelAllowsProcessing(false, null))
     }
 }
