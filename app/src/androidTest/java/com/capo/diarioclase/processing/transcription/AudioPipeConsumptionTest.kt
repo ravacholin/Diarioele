@@ -1,18 +1,22 @@
 package com.capo.diarioclase.processing.transcription
 
 import android.os.ParcelFileDescriptor
-import android.test.AndroidTestCase
+import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
 import java.io.File
 
 /** Native pipe contract: run on an Android device, not a mocked Linux pipe. */
-@Suppress("DEPRECATION")
-class AudioPipeConsumptionTest : AndroidTestCase() {
+class AudioPipeConsumptionTest {
+    @Test
     fun testBufferedShortAudioIsNotProofOfConsumption() {
         val pipe = ParcelFileDescriptor.createPipe()
         try {
@@ -31,6 +35,7 @@ class AudioPipeConsumptionTest : AndroidTestCase() {
         }
     }
 
+    @Test
     fun testOpenWriterOrInvalidDescriptorFailsClosed() {
         val pipe = ParcelFileDescriptor.createPipe()
         try {
@@ -42,8 +47,10 @@ class AudioPipeConsumptionTest : AndroidTestCase() {
         }
     }
 
+    @Test
     fun testFullPipeWriterCanBeCancelledWithReaderStillOpen() = runBlocking {
-        val source = File.createTempFile("pipe-cancel-", ".wav", context.cacheDir)
+        val cacheDir = InstrumentationRegistry.getInstrumentation().targetContext.cacheDir
+        val source = File.createTempFile("pipe-cancel-", ".wav", cacheDir)
         val pipe = ParcelFileDescriptor.createPipe()
         try {
             // No reader consumes these bytes. Cancellation must not wait for a blocking write.
