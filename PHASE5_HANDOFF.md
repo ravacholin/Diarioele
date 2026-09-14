@@ -17,6 +17,8 @@ La Fase 4 permanece completa, validada por CI y probada con éxito en el Moto g 
 - Diseño: `docs/superpowers/specs/2026-09-14-contextual-interpretation-design.md`
 - Plan: `docs/superpowers/plans/2026-09-14-contextual-interpretation.md`
 - Coordinación multiagente: `PHASE5_AGENT_COLLABORATION.md`
+- PR central borrador: `#3`
+- Último head revisado antes de este checkpoint: `7a9393514e2ca572df5345235ebaf6b04406dde2`
 
 Antes de modificar código, comprobar en GitHub si existe un checkpoint más reciente en este documento.
 
@@ -46,7 +48,8 @@ La garantía de costo requiere claves de cuentas o proyectos sin facturación. L
 
 | Tarea | Estado | Dependencias | Evidencia |
 |---|---|---|---|
-| 1. Contratos y escenarios | PENDIENTE | ninguna | sin PR |
+| 0. Readiness colaborativo | EN VALIDACIÓN | ninguna | CI habilitada; falta baseline verde |
+| 1. Contratos y escenarios | BLOQUEADA | Task 0 verde | sin PR |
 | 2. Catálogo y credenciales | BLOQUEADA | Task 1 | sin PR |
 | 3. Paquetes contextuales | BLOQUEADA | Task 1 | sin PR |
 | 4. Prompt y clientes HTTP | BLOQUEADA | Task 1 | sin PR |
@@ -58,7 +61,7 @@ La garantía de costo requiere claves de cuentas o proyectos sin facturación. L
 
 ## Siguiente acción exacta
 
-Ejecutar solamente Task 1 del plan en:
+Primero confirmar que GitHub Actions esté verde para el último head de la rama de integración. Después ejecutar solamente Task 1 del plan en:
 
 ```text
 feature/phase5-task-01-contracts
@@ -77,7 +80,7 @@ Secuencia:
 9. integrar solo después de CI verde;
 10. actualizar este handoff.
 
-No iniciar Tasks 2, 3, 4 o 6 antes de congelar el contrato de Task 1.
+No iniciar Task 1 sin baseline verde. No iniciar Tasks 2, 3, 4 o 6 antes de congelar el contrato de Task 1.
 
 ## Restricciones de implementación
 
@@ -131,10 +134,27 @@ Próxima tarea habilitada:
 
 No marcar una tarea como completa basándose solamente en el reporte de un agente.
 
+## Correcciones incorporadas tras revisión independiente
+
+- CI habilitada para la rama de integración, ramas de tareas y PRs hacia Fase 5.
+- Promesa de costo reformulada como ausencia de escalado automático a rutas pagas.
+- Inferencia remota desactivada por defecto y modo local permanente.
+- Evidencia múltiple, `claimKey`, supersesiones y política estado→campo pasan a Task 1.
+- Orden de spans incluye ordinal de segmento.
+- Dos requests máximos, circuit breaker, deadline y checkpoint reanudable.
+- Transporte con allowlist, límites y sin redirects con credenciales.
+- Caché acotado por sesión y versionado por validador.
+- Protección de edición por campo.
+- Feedback/migración adicional diferidos para evitar complejidad sin uso.
+- Cierre sobre release no depurable.
+
 ## Historial documental
 
 - `d4bf31be623e7d6bacb8bb42fb71ebf065f45d37`: diseño y plan del router gratuito.
 - `4fbc960666826f98ada81e9de60fdf045736c865`: protocolo de colaboración multiagente.
+- `c4085ce10fbdc66d6bd2fc0b84d680ebfc23b695`: triggers de CI de Fase 5 corregidos.
+- `2143eca43c25d94aff89615e9ed5495b7919363b`: bloqueos técnicos de revisión resueltos en el plan.
+- `7a9393514e2ca572df5345235ebaf6b04406dde2`: readiness y propiedad de archivos actualizados.
 
 ## Condición de cierre
 
