@@ -37,7 +37,7 @@ No debe quedar trabajo terminado únicamente en un entorno temporal. Cada bloque
 | UI observable sin descarga de idioma (Task 7) | Recuperado y validado | `5b60dd0`, workflow #67 |
 | Limpieza segura de runs y checkpoints (Task 8) | Recuperado y validado | `2824a22`, workflow #70 |
 | Composición y entrega del APK (Task 9) | Recuperado y validado | `a53b321`, workflow #74 |
-| Prueba física en el Moto g max | Pendiente | |
+| Prueba física en el Moto g max | Superada (2026-09-14) | APK `v0.4.0-whisper`, confirmada por el usuario |
 
 ## Garantías ya implementadas
 

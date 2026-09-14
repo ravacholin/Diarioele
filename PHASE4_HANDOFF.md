@@ -175,14 +175,16 @@ Tasks 7, 8 y 9 están completas y validadas por GitHub Actions `#74` (`a53b321`)
   ya no consulta `RecognitionService`; la versión es `0.4.0-whisper` (código 6); el
   APK sigue sin permiso de Internet.
 
-## Próximo paso exacto: prueba física
+## Estado final: Fase 4 completa
 
-La Fase 4 está completa en código y validada por CI, pero **no** probada en el
-teléfono. El siguiente paso es la validación física en el Moto g max siguiendo
-`PHASE4_WHISPER_DEVICE_TEST.md` (10 s → 1 min pausa/reanudar → 10 min
-cierre/reapertura → bloque largo). Reglas: desactivar red, no aprobar durante una
-prueba de fallo (aprobar borra los temporales), y conservar el audio y registrar
-estado, progreso y error si algo falla. Ninguna CI verde reemplaza esta prueba.
+La Fase 4 está **completa**: implementada, validada por GitHub Actions `#74`
+(`a53b321`) y **probada físicamente en el Moto g max** con el APK
+`v0.4.0-whisper` (el usuario confirmó el 2026-09-14 que todo lo implementado
+funciona bien en el dispositivo).
+
+No quedan pasos pendientes de la Fase 4. `PHASE4_WHISPER_DEVICE_TEST.md` queda como
+protocolo de referencia para futuras regresiones. El audio se sigue eliminando solo
+con aprobación explícita del usuario. Cualquier trabajo nuevo es una fase posterior.
 
 ## Cómo obtener el APK
 
@@ -215,10 +217,11 @@ primero (borra sus datos locales). El APK no pide permiso de Internet.
 - Task 9 tuvo una falla de CI intermedia (`8a388b2`): al borrar el motor viejo se
   fueron los helpers `writePcmToPipe`/`isAudioPipeDrained` que usaba el androidTest
   `AudioPipeConsumptionTest`; se eliminó ese test (código muerto) en `a53b321`.
-- Automatizado el Release por tag y publicado `v0.4.0-whisper`.
-- **Pendiente:** prueba física en el Moto g max (arriba). El PR #1 sigue en borrador
-  hasta esa validación. No mergear a `main` ni borrar audio sin aprobación explícita
-  del usuario.
+- Automatizado el Release (por tag `v*` o por `workflow_dispatch` con input
+  `release_tag`) y publicado `v0.4.0-whisper`.
+- **Prueba física en el Moto g max: superada.** El usuario instaló el APK
+  `v0.4.0-whisper` y confirmó que todo lo implementado funciona bien en el
+  dispositivo. Con esto la Fase 4 queda completa.
 
 ## Secuencia posterior (Task 8 y Task 9 — ya completadas)
 

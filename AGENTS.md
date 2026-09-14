@@ -40,4 +40,6 @@ Tasks 7, 8 y 9 están completas y validadas por GitHub Actions `#74` (`a53b321`)
 - Task 8: la limpieza temporal también borra y cuenta `transcription_runs` y `transcription_checkpoints`.
 - Task 9: motor de reconocimiento anterior eliminado, versión `0.4.0-whisper`, APK offline listo.
 
-La próxima tarea es la **prueba física en el Moto g max** siguiendo `PHASE4_WHISPER_DEVICE_TEST.md`. Ninguna CI verde reemplaza esa prueba, y el audio no se borra sin aprobación explícita del usuario.
+**Prueba física en el Moto g max: superada (2026-09-14).** El usuario instaló el APK `v0.4.0-whisper` y confirmó que todo lo implementado funciona bien en el dispositivo. La Fase 4 queda completa: implementada, validada por CI y probada en el teléfono.
+
+No quedan tareas pendientes de la Fase 4. El audio se sigue eliminando solo con aprobación explícita del usuario. Cualquier trabajo nuevo es una fase posterior.
