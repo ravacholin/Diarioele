@@ -564,7 +564,7 @@ Al completar la transcripción, llamar:
 ```kotlin
 val result = interpreter.interpret(
     spans = store.transcript(sessionId),
-    markers = store.interpretationMarkers(sessionId),
+    markers = emptyList(),
     mode = mode,
 )
 ```
@@ -605,6 +605,8 @@ git commit -m "refactor: replace literal extraction with contextual interpreter"
 - Modify: `app/src/main/java/com/capo/diarioclase/data/db/SessionDao.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/data/db/DiarioDatabase.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/work/RoomProcessingStore.kt`
+- Modify: `app/src/main/java/com/capo/diarioclase/processing/work/TranscriptionCoordinator.kt`
+- Modify: `app/src/test/java/com/capo/diarioclase/processing/work/TranscriptionCoordinatorTest.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/ui/capture/CaptureUiState.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/ui/capture/CaptureViewModel.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/ui/capture/CaptureScreen.kt`
@@ -640,7 +642,7 @@ La migración crea la tabla y sus índices sin tocar sesiones, audio, transcript
 
 - [ ] **Step 3: Agregar DAO y limpieza**
 
-Agregar `insertInterpretationMarker`, `interpretationMarkers(sessionId)`, `deleteInterpretationMarkersForSession` y sumar la tabla a `temporaryRowCount`. El borrado continúa ocurriendo solamente en el flujo de aprobación verificada.
+Agregar `insertInterpretationMarker`, `interpretationMarkers(sessionId)`, `deleteInterpretationMarkersForSession` y sumar la tabla a `temporaryRowCount`. Extender `ProcessingStore` para devolver los marcadores de la sesión y reemplazar `markers = emptyList()` en `TranscriptionCoordinator` por `markers = store.interpretationMarkers(sessionId)`. El borrado continúa ocurriendo solamente en el flujo de aprobación verificada.
 
 - [ ] **Step 4: Incorporar cuatro acciones compactas**
 
