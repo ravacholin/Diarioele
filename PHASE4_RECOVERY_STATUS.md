@@ -12,8 +12,8 @@ Incorporar transcripción local, privada y gratuita en español rioplatense. El 
 - Rama de trabajo: `feature/phase4-whisper-recovery`
 - PR borrador: [#1](https://github.com/ravacholin/Diarioele/pull/1)
 - Base inicial: `main@35c45a1`
-- Último checkpoint funcional validado: `2872f49`
-- Última validación completa: GitHub Actions `#49`, exitosa
+- Último checkpoint funcional validado: `b5c42b3`
+- Última validación completa: GitHub Actions `#57`, exitosa
 
 No debe quedar trabajo terminado únicamente en un entorno temporal. Cada bloque funcional se confirma en esta rama y se valida con GitHub Actions antes de continuar.
 
@@ -27,7 +27,7 @@ No debe quedar trabajo terminado únicamente en un entorno temporal. Cada bloque
 | Checkpoints Room y migración 3→4 | Recuperado y validado | `5b24221`, workflow #37 |
 | Motor nativo whisper.cpp ARM64 | Recuperado y validado | `47ab1b9`, workflow #41 |
 | Coordinador reanudable por ventana | Recuperado y validado | `2872f49`, workflow #49 |
-| Ejecución persistente en segundo plano | Pendiente de reconstrucción | |
+| Ejecución persistente en segundo plano | Recuperado y validado | `b5c42b3`, workflow #57 |
 | Extracción conservadora de la ficha | Pendiente de reconstrucción | |
 | Pantallas de progreso, error y revisión | Pendiente de reconstrucción | |
 | Integración completa y prueba en teléfono | Pendiente | |
@@ -49,6 +49,13 @@ No debe quedar trabajo terminado únicamente en un entorno temporal. Cada bloque
 - El APK no solicita permiso de Internet y transcribe localmente.
 - La biblioteca nativa se compila solo para `arm64-v8a`.
 - La licencia MIT de whisper.cpp se incluye dentro del APK.
+- Cada día tiene un único trabajo persistente de transcripción administrado por WorkManager.
+- Iniciar o reanudar limpia la pausa antes de encolar el trabajo; pausar guarda primero la pausa y después cancela el trabajo.
+- La transcripción continúa en primer plano aunque se apague la pantalla o se cierre la interfaz.
+- La notificación informa el progreso y permite pausar el procesamiento.
+- Cada ventana tiene un límite de cinco minutos y un fallo conserva el audio, el texto y el checkpoint anteriores.
+- Cancelar el trabajo alcanza también a la inferencia nativa de Whisper.
+- El planificador se inicializa solamente cuando se usa, para no interferir con el arranque ni con las pruebas.
 
 ## Fuente nativa reproducible
 
@@ -63,6 +70,10 @@ Durante la compilación, CMake obtiene `whisper.cpp` desde su repositorio oficia
 5. Si un entorno desaparece, el siguiente retoma desde el SHA remoto indicado aquí.
 6. El APK se publica como artefacto de GitHub Actions; el modelo y los audios no se versionan.
 7. Los audios temporales permanecen privados en el teléfono y solo se borran con confirmación del usuario.
+
+## Estado de integración
+
+El trabajo persistente ya está compilado y probado, pero la interfaz todavía invoca el coordinador sincrónico anterior. El siguiente bloque debe conectar las acciones de la interfaz con el planificador, mostrar progreso y errores, y retirar el flujo antiguo de descarga de idioma de Android.
 
 ## Trabajo local perdido
 
