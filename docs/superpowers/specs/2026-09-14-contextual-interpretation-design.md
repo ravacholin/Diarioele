@@ -1,16 +1,28 @@
-# Diseño de Fase 5: interpretación contextual offline
+# Diseño de Fase 5: interpretación contextual con Gemini
 
 Fecha: 2026-09-14
 
 ## Problema
 
-Whisper local produce una transcripción suficientemente útil, pero la ficha diaria pierde información o la clasifica mal. La causa está en la interpretación posterior: cada `TranscriptSpan` se examina de forma aislada mediante expresiones regulares, las referencias se vinculan solo con una página activa simple, las correcciones orales no se resuelven y la confianza se asigna con constantes.
+Whisper local produce una transcripción útil, pero el extractor actual analiza cada `TranscriptSpan` de forma aislada mediante expresiones regulares. No comprende bien información distribuida entre frases, listas, referencias elípticas, preguntas, planes futuros, repeticiones ni autocorrecciones.
 
-La Fase 5 debe reconstruir eventos pedagógicos a partir de varios fragmentos consecutivos sin modificar el motor Whisper ni exigir un corpus previo de grabaciones reales.
+La Fase 5 debe convertir la transcripción en una ficha pedagógica precisa sin exigir un corpus inicial de grabaciones reales.
 
 ## Objetivo
 
-Transformar una transcripción española en cinco campos confiables:
+Usar un modelo rápido de Gemini como intérprete semántico principal y conservar en el teléfono las funciones que necesitan ser deterministas:
+
+- preparación y división del contexto;
+- validación de evidencia;
+- normalización de páginas y ejercicios;
+- resolución de duplicados y conflictos;
+- proyección conservadora, equilibrada o exhaustiva;
+- caché, recuperación y fallback;
+- protección de las ediciones del usuario.
+
+## Campos y estados
+
+Los cinco campos permanentes continúan siendo:
 
 - Temas.
 - Actividades realizadas.
@@ -18,144 +30,186 @@ Transformar una transcripción española en cinco campos confiables:
 - Ejercicios hechos.
 - Tarea.
 
-Cada resultado debe conservar evidencia temporal y distinguir si fue realizado, asignado, propuesto, cancelado, corregido o incierto.
-
-## Restricciones
-
-- Android, Kotlin y Jetpack Compose.
-- Funcionamiento completamente local y sin permiso de Internet.
-- Sin nube, APIs pagas, LLM ni descarga de modelos adicionales.
-- Whisper `base` en español continúa sin cambios.
-- El modo de interpretación no provoca una nueva transcripción.
-- `CONSERVATIVE` sigue siendo el modo predeterminado.
-- Los campos editados por el usuario nunca se sobrescriben.
-- Audio y datos temporales se eliminan solamente después de guardar y aprobar explícitamente.
-- La transcripción original no se reescribe ni se limpia destructivamente.
-- No se necesita un corpus inicial de grabaciones reales.
-- La rama validada de Fase 4 permanece como punto de recuperación.
+Cada afirmación debe tener una categoría, un valor normalizado, un estado, confianza y evidencia. Estados admitidos: `PERFORMED`, `ASSIGNED`, `PROPOSED`, `CANCELLED`, `CORRECTED` y `UNCERTAIN`.
 
 ## Arquitectura
 
-La interpretación se divide en unidades puras y comprobables:
+1. Whisper `base` transcribe audio localmente en español.
+2. `GeminiInterpretationPacketBuilder` agrupa spans por bloque, conserva ids y timestamps y limita cada paquete.
+3. `GeminiPromptFactory` solicita una extracción exhaustiva mediante JSON estructurado.
+4. `GeminiInterpretationClient` realiza llamadas de texto con un modelo Flash configurable.
+5. `GeminiResponseValidator` rechaza categorías, estados, referencias y evidencias inválidas.
+6. `SemanticClaimReducer` combina paquetes, resuelve duplicados y conserva correcciones posteriores.
+7. `InterpretationProjector` aplica los tres modos localmente sin nuevas llamadas.
+8. `InterpretationCache` reutiliza respuestas cuando el hash del texto, prompt y modelo no cambió.
+9. Si Gemini no está configurado, no hay red o se agotan los reintentos, `FallbackClaimExtractor` produce una ficha local básica y editable.
 
-1. `ContextualUtteranceAssembler` agrupa spans vecinos del mismo bloque sin perder timestamps ni texto original.
-2. `ConversationalNormalizer` divide el habla en cláusulas y anota negación, pregunta, planificación, autocorrección y cancelación. No borra material.
-3. `BookReferenceParser` reconoce páginas, ejercicios, listas, rangos, sufijos y referencias elípticas.
-4. `PedagogicalEventExtractor` crea eventos tipados y conserva toda la evidencia que los originó.
-5. `ContextualClaimReducer` mantiene el estado pedagógico del bloque, vincula páginas y ejercicios y aplica correcciones posteriores.
-6. `EvidenceConfidenceScorer` calcula confianza a partir de señales observables.
-7. `InterpretationProjector` conserva los tres modos y decide qué aceptar, confirmar u ocultar.
-8. Los marcadores manuales opcionales aportan anclas temporales, pero la interpretación funciona sin ellos.
+## Decisiones de privacidad
 
-## Estrategia de pruebas sin corpus
+- El audio nunca se envía a Gemini.
+- Solo se envía texto transcripto con identificadores artificiales de spans.
+- No se envían nombres de archivo, rutas, ids internos de sesión ni metadatos del dispositivo.
+- La primera activación muestra que el nivel gratuito de Gemini puede utilizar el contenido enviado para mejorar productos de Google.
+- El usuario debe aceptar explícitamente antes de la primera solicitud.
+- La función se puede desactivar; Whisper y el fallback siguen disponibles.
+- La clave no se incluye en código, recursos, GitHub, APK, logs, Room ni backups.
+- En la versión privada, el usuario ingresa la credencial y se guarda cifrada con Android Keystore.
+- Si la aplicación se distribuye a terceros, la integración directa se reemplaza por Firebase AI Logic con App Check.
+- La app incorpora permiso de Internet exclusivamente para la interpretación Gemini.
 
-La suite inicial será sintética y declarativa. Cada escenario tendrá:
+## Estrategia de paquetes
 
-- spans de entrada con bloque y timestamps;
-- eventos esperados;
-- claims finales esperados;
-- elementos que no deben aparecer.
+La unidad primaria es el bloque de clase. Para evitar solicitudes excesivas:
 
-Los escenarios se escriben a partir de patrones reales del español docente, no de audios del usuario. Una pequeña fábrica combinará verbos, personas, números, listas y marcadores discursivos para multiplicar la cobertura sin mantener cientos de cadenas copiadas.
+- ordenar spans por timestamp;
+- producir paquetes de hasta 12.000 caracteres;
+- cortar preferentemente en pausas de al menos 4.000 ms;
+- repetir como contexto los últimos 2 spans del paquete anterior;
+- marcar esos spans como `contextOnly` para que Gemini no cree duplicados;
+- procesar paquetes secuencialmente para respetar límites gratuitos;
+- consolidar respuestas localmente, sin una segunda llamada.
 
-La matriz mínima incluye:
+Cada span se representa así:
 
-- enunciados directos;
-- información distribuida entre varios spans;
-- números en cifras y palabras;
-- listas, rangos y sufijos;
-- página activa y cambio de página;
-- elipsis como “el siguiente” y “ese mismo”;
-- preguntas y citas que no deben registrarse;
-- planes futuros frente a acciones realizadas;
-- tarea asignada, modificada y cancelada;
-- autocorrecciones con “no”, “perdón”, “mejor”, “quise decir”, “en realidad” y “bah”;
-- repetición pedagógica legítima;
-- duplicación producida por ventanas Whisper;
-- referencias ambiguas que deben quedar por confirmar.
+```text
+[S12|00:14:05-00:14:10] Vamos a la página cuarenta y dos.
+[S13|00:14:11-00:14:17] Hacemos los ejercicios tres y cuatro.
+[S14|00:14:18-00:14:24] El cuatro no, perdón, queda para casa.
+```
 
-Esta suite es la especificación inicial. Los ejemplos reales que aparezcan después de usar la aplicación se agregan como nuevas regresiones, pero no son una condición de entrada.
+## Contrato de Gemini
 
-## Semántica de correcciones
+Gemini devuelve exclusivamente JSON conforme al esquema:
 
-Las cláusulas se procesan en orden temporal. Una cláusula posterior puede:
+```json
+{
+  "claims": [
+    {
+      "category": "EXERCISE",
+      "value": "3 (p. 42)",
+      "normalized_value": "3 (p. 42)",
+      "status": "PERFORMED",
+      "confidence": 0.96,
+      "evidence_span_ids": ["S12", "S13"],
+      "supersedes_claim_keys": []
+    }
+  ]
+}
+```
 
-- reemplazar un valor anterior;
-- cambiar `PROPOSED` por `PERFORMED`;
-- mover un ejercicio de realizado a tarea;
-- cancelar una asignación;
-- corregir una página o un número;
-- dejar dos interpretaciones en estado `UNCERTAIN` si falta un referente inequívoco.
+Instrucciones centrales del prompt:
 
-Una negación no elimina automáticamente todo lo anterior. Su alcance se limita al evento o referente enlazado.
+- extraer solamente información pedagógica expresada;
+- no convertir preguntas, citas o planes futuros en acciones realizadas;
+- distinguir ejercicio realizado de tarea;
+- aplicar autocorrecciones posteriores;
+- no inventar páginas, ejercicios ni temas;
+- citar uno o más ids de spans para cada claim;
+- usar `UNCERTAIN` cuando el referente no pueda resolverse;
+- devolver todas las afirmaciones con evidencia, dejando los modos para la app.
 
-Ejemplo:
+## Validación local
 
-`Vamos a hacer el 3 y el 4. El 4 no, perdón, queda para casa.`
+Un claim solo puede avanzar si:
 
-Resultado:
+- la categoría y el estado pertenecen a los enums conocidos;
+- el valor no está vacío y respeta los límites de longitud;
+- todos los ids de evidencia existen en el paquete;
+- al menos una evidencia no está marcada solo como contexto;
+- la página o el ejercicio aparecen en las evidencias o pueden vincularse a una página explícita del mismo bloque;
+- la confianza está entre 0 y 1;
+- el número total de claims no supera 100 por paquete;
+- ningún campo adicional modifica el modelo local.
 
-- ejercicio 3: `PERFORMED`;
-- ejercicio 4: `ASSIGNED` como tarea;
-- la afirmación previa sobre el ejercicio 4 queda inactiva con estado `CORRECTED`.
+Las respuestas inválidas no se reparan silenciosamente. Se registra un código de fallo, se conserva la transcripción y se ofrece reintentar o usar el fallback.
 
-## Confianza
+## Modos
 
-La confianza deja de estar fijada solamente por categoría. Se compone de señales:
+Gemini genera una sola interpretación exhaustiva. Los modos se aplican después:
 
-- verbo de acción explícito;
-- categoría nombrada explícitamente;
-- número o referencia resuelta;
-- página vinculada;
-- marcador manual cercano;
-- continuidad dentro del mismo bloque;
-- penalización por elipsis no resuelta;
-- penalización por interrogación, cita o conflicto;
-- confianza mínima de los spans que aportan evidencia.
+- `CONSERVATIVE`: acepta confianza mínima 0,85; entre 0,60 y 0,85 queda por confirmar.
+- `BALANCED`: acepta confianza mínima 0,70; entre 0,40 y 0,70 queda por confirmar.
+- `EXHAUSTIVE`: acepta confianza mínima 0,55; entre 0,01 y 0,55 queda por confirmar.
 
-El puntaje debe ser determinista y explicable en pruebas. Los modos solo aplican umbrales al resultado ya calculado.
+Cambiar de modo nunca retranscribe ni vuelve a llamar a Gemini.
 
-## Marcadores manuales
+## Caché y consumo
 
-Se incorporan anclas opcionales `HOMEWORK`, `PAGE`, `EXERCISE` e `IMPORTANT_ACTIVITY`. Cada marcador guarda sesión, bloque y timestamp. El intérprete busca evidencia en una ventana temporal limitada alrededor del marcador y aumenta la confianza de una categoría compatible.
+La clave del caché combina:
 
-Los marcadores no crean contenido sin evidencia textual y no son obligatorios para obtener una ficha.
+- SHA-256 del texto exacto del paquete;
+- versión del prompt;
+- identificador del modelo;
+- versión del esquema.
 
-## Aprendizaje progresivo sin entrenamiento
+Una respuesta validada se reutiliza en reanudaciones y reproyecciones. Los fallos no se guardan como respuestas válidas. El usuario puede forzar una nueva interpretación mediante una acción explícita.
 
-Cuando el usuario edita una ficha, se guarda localmente un registro que contiene:
+## Errores y fallback
 
-- valores generados antes de editar;
-- valores aprobados;
-- ids de evidencia relacionados;
-- modo de interpretación;
-- fecha.
+La integración distingue:
 
-En esta fase el registro no entrena modelos ni modifica automáticamente reglas. Sirve para reproducir fallos, crear nuevas pruebas y medir qué categorías necesitan ajustes. No sale del dispositivo salvo exportación explícita futura.
+- sin clave;
+- consentimiento no otorgado;
+- sin red;
+- autenticación inválida;
+- cuota agotada o `429`;
+- servidor no disponible o `500/503`;
+- timeout;
+- respuesta vacía;
+- JSON inválido;
+- evidencia inválida.
+
+Para `429`, `500` y `503` se realizan hasta tres intentos con espera de 2, 5 y 12 segundos. El timeout por solicitud es 90 segundos. Después se conserva todo, se muestra el error y se permite reintentar o generar una ficha básica local.
+
+## Seguridad de credenciales
+
+La clave se introduce en Ajustes y se guarda mediante una envoltura de Android Keystore. La UI solo muestra los últimos cuatro caracteres. Existe una acción para probar la conexión y otra para borrar la clave. Ningún test usa una clave real y GitHub Actions utiliza un cliente falso.
+
+## Pruebas sin corpus
+
+La suite inicial usa transcripciones sintéticas y respuestas JSON preparadas. Incluye:
+
+- cinco categorías;
+- cifras y números escritos;
+- listas y rangos;
+- información repartida entre spans;
+- tareas asignadas, cambiadas y canceladas;
+- preguntas, citas y planes futuros;
+- correcciones con “no”, “perdón”, “mejor”, “en realidad” y “bah”;
+- duplicados entre paquetes;
+- referencias inválidas;
+- JSON truncado o con campos extra;
+- `429`, `500`, `503`, timeout y falta de red;
+- caché y cambio de modo;
+- campos editados por el usuario.
+
+No se necesita audio ni material real del usuario para implementar la fase. Los errores físicos futuros se convierten en escenarios sintéticos mínimos y anónimos.
 
 ## Exclusiones
 
 No forman parte de esta fase:
 
-- cambiar o reentrenar Whisper;
-- incorporar un LLM local;
-- crear un clasificador aprendido;
-- subir audio, transcripciones o correcciones;
-- inferir contenido sin evidencia;
-- resumir toda la conversación de la clase;
-- distinguir automáticamente identidades de hablantes.
-
-Un clasificador pequeño podrá evaluarse en una fase posterior solamente si la suite determinista y la validación física muestran una familia persistente de errores que no pueda resolverse con reglas contextuales.
+- enviar audio a Gemini;
+- usar Gemini para transcribir;
+- llamadas en tiempo real durante la grabación;
+- una segunda llamada para resumir respuestas;
+- entrenar un clasificador;
+- guardar la clave en el APK;
+- subir datos de feedback;
+- identificar hablantes;
+- exigir marcadores manuales durante la clase.
 
 ## Criterios de aceptación
 
-- Todos los escenarios sintéticos deterministas pasan.
-- Preguntas, citas, planes futuros y negaciones no generan falsos realizados.
-- Correcciones posteriores prevalecen sin borrar evidencia.
-- Listas, rangos y referencias distribuidas se vinculan correctamente.
-- Cambiar de modo no vuelve a ejecutar Whisper.
+- Gemini recibe solo texto y referencias artificiales.
+- Todos los claims visibles tienen evidencia válida.
+- Las correcciones posteriores prevalecen.
+- Preguntas, citas y planes futuros no generan falsos realizados.
+- Una respuesta malformada no corrompe la ficha ni elimina temporales.
+- Cambiar de modo no llama a Gemini.
+- Reanudar reutiliza caché válido.
 - Los campos editados permanecen intactos.
-- Cada claim visible contiene evidencia no vacía y timestamps válidos.
-- La app sigue sin permiso de Internet.
-- Las pruebas completas, lint y ensamblado Android pasan en GitHub Actions.
-- Una prueba física en el Moto g max demuestra mejora sobre frases preparadas que cubren los cinco campos, correcciones y tarea.
+- Sin clave o sin red existe una ficha local básica.
+- Ninguna credencial aparece en el repositorio, APK, base de datos, logs o backups.
+- Las pruebas, lint y ensamblado pasan en GitHub Actions.
+- El APK se prueba físicamente en el Moto g max con éxito, fallo y modo avión.
