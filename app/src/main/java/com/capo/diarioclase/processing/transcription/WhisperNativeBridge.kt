@@ -33,13 +33,10 @@ interface WhisperNativeRuntime : AutoCloseable {
 class WhisperNativeBridge : WhisperNativeRuntime {
     private var handle: Long = 0L
 
-    init {
-        System.loadLibrary("diarioclase_whisper")
-    }
-
     @Synchronized
     override fun load(modelPath: String) {
         close()
+        ensureLibraryLoaded()
         handle = nativeInit(modelPath)
         check(handle != 0L) { "No se pudo cargar el modelo Whisper" }
     }
@@ -76,7 +73,10 @@ class WhisperNativeBridge : WhisperNativeRuntime {
         if (current != 0L) nativeFree(current)
     }
 
-    fun version(): String = nativeVersion()
+    fun version(): String {
+        ensureLibraryLoaded()
+        return nativeVersion()
+    }
 
     private external fun nativeInit(modelPath: String): Long
     private external fun nativeTranscribe(
@@ -88,4 +88,16 @@ class WhisperNativeBridge : WhisperNativeRuntime {
     private external fun nativeCancel(handle: Long)
     private external fun nativeFree(handle: Long)
     private external fun nativeVersion(): String
+
+    companion object {
+        @Volatile private var libraryLoaded = false
+
+        @Synchronized
+        private fun ensureLibraryLoaded() {
+            if (!libraryLoaded) {
+                System.loadLibrary("diarioclase_whisper")
+                libraryLoaded = true
+            }
+        }
+    }
 }
