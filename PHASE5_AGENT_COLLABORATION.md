@@ -41,6 +41,7 @@ Cada tarea se implementa en una rama corta creada desde el último head verde de
 
 | Tarea | Rama recomendada |
 |---|---|
+| 0 | `feature/phase5-contextual-interpretation` (integrador) |
 | 1 | `feature/phase5-task-01-contracts` |
 | 2 | `feature/phase5-task-02-credentials` |
 | 3 | `feature/phase5-task-03-packets` |
@@ -57,7 +58,7 @@ Cada rama abre un PR contra `feature/phase5-contextual-interpretation`, nunca co
 
 ```mermaid
 flowchart TD
-    T1["T1 Contratos"] --> T2["T2 Credenciales"]
+    T0["T0 CI y continuidad"] --> T1["T1 Contratos"] --> T2["T2 Credenciales"]
     T1 --> T3["T3 Paquetes"]
     T1 --> T4["T4 Clientes HTTP"]
     T3 --> T5["T5 Validación y reducción"]
@@ -70,6 +71,10 @@ flowchart TD
     T7 --> T8["T8 Integración y UI"]
     T8 --> T9["T9 Feedback y release"]
 ```
+
+### Readiness: habilitar colaboración
+
+Task 0 actualiza CI, continuidad y fuentes de verdad. Ningún agente empieza Task 1 hasta que el baseline de la rama de integración esté verde.
 
 ### Ola 0: congelar contratos
 
@@ -107,13 +112,13 @@ Tasks 8 y 9 son secuenciales porque comparten composición, UI, base de datos y 
 
 | Tarea | Propiedad principal | No debe modificar |
 |---|---|---|
-| 1 | `processing/semantic/InferenceModels.kt`, interfaz y fixtures comunes | UI, Room, transporte real |
+| 1 | `processing/semantic/InferenceModels.kt`, interfaz, evidencia múltiple, claves de claim, estado→campo y fixtures | UI, Room, transporte real |
 | 2 | catálogo gratuito, consentimiento, Keystore y sus pruebas | endpoints, router, Room |
 | 3 | `InterpretationPacketBuilder` y sus pruebas | clientes, UI, entidades |
 | 4 | prompt, transporte y adaptadores de proveedores | Keystore, Room, coordinator |
 | 5 | validador, reductor, procedencia y projector | transporte, credenciales, UI |
-| 6 | entidades, DAO, migración 4→5 y caché | router, clientes, UI |
-| 7 | router, retry y fallback local | UI, migraciones, Whisper |
+| 6 | entidades, DAO, migración 4→5, caché y cleanup | router, clientes, UI |
+| 7 | router, retry y adaptación del extractor literal | UI, migraciones, Whisper |
 | 8 | coordinator, worker, composición y pantallas | esquema Room salvo coordinación |
 | 9 | feedback, migración 5→6, versión, protocolo y handoff | semántica ya validada |
 
@@ -129,6 +134,9 @@ Estos archivos tienen alto riesgo de conflicto. Solo los modifica la tarea asign
 - `app/src/main/java/com/capo/diarioclase/DiarioClaseApp.kt`: Task 8.
 - `app/src/main/java/com/capo/diarioclase/processing/work/TranscriptionCoordinator.kt`: Task 8.
 - `app/src/test/java/com/capo/diarioclase/FullJourneyTest.kt`: Tasks 6 y 9.
+- `app/src/main/java/com/capo/diarioclase/diary/cleanup/CleanupCoordinator.kt`: Task 6.
+- `app/src/main/java/com/capo/diarioclase/processing/evidence/LiteralClaimExtractor.kt`: Task 7.
+- `.github/workflows/android-apk.yml`: integrador en Task 0 y Task 9.
 - `AGENTS.md` y `PHASE5_HANDOFF.md`: agente integrador.
 
 Si una tarea descubre que necesita modificar un archivo reservado ajeno, se detiene y lo declara en su handoff. No amplía el alcance silenciosamente.
