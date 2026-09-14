@@ -1,4 +1,4 @@
-# Diseño de Fase 5: interpretación contextual con Gemini
+# Diseño de Fase 5: interpretación contextual con proveedores gratuitos
 
 Fecha: 2026-09-14
 
@@ -6,19 +6,42 @@ Fecha: 2026-09-14
 
 Whisper local produce una transcripción útil, pero el extractor actual analiza cada `TranscriptSpan` de forma aislada mediante expresiones regulares. No comprende bien información distribuida entre frases, listas, referencias elípticas, preguntas, planes futuros, repeticiones ni autocorrecciones.
 
-La Fase 5 debe convertir la transcripción en una ficha pedagógica precisa sin exigir un corpus inicial de grabaciones reales.
+La Fase 5 debe convertir la transcripción en una ficha pedagógica precisa sin exigir un corpus inicial y sin depender de un único servicio de inferencia.
+
+## Decisión
+
+Se implementará un router pequeño, predecible y limitado a tres proveedores:
+
+1. Gemini API como proveedor principal.
+2. GroqCloud como primer fallback.
+3. OpenRouter `openrouter/free` como segundo fallback.
+4. Extractor local básico como salida final sin red.
+
+No se incorporan Cloudflare Workers AI, Mistral ni otro modelo Android en esta fase. Cloudflare exige otro esquema de cuenta y autenticación; Mistral duplicaría la función de Groq; un segundo modelo local aumentaría mucho el tamaño y la complejidad del APK.
+
+## Garantía de costo
+
+La aplicación solo admite configuraciones gratuitas predefinidas:
+
+- Gemini: modelo Flash incluido en el nivel gratuito, con una clave de un proyecto sin facturación.
+- Groq: modelo admitido en el plan Free.
+- OpenRouter: exclusivamente `openrouter/free`; no acepta ids de modelos pagos.
+- Local: reglas deterministas sin servicio externo.
+
+La aplicación no agrega tarjetas, habilita facturación ni cambia automáticamente a modelos pagos. Cuando se agota una cuota, pasa al siguiente proveedor o al fallback local.
+
+La aplicación no puede convertir en gratuita una cuenta externa que el usuario haya asociado voluntariamente a facturación. Para una garantía real, cada clave debe provenir de una cuenta o proyecto sin facturación habilitada. La UI lo explica durante la configuración.
 
 ## Objetivo
 
-Usar un modelo rápido de Gemini como intérprete semántico principal y conservar en el teléfono las funciones que necesitan ser deterministas:
+Conseguir inferencia automática aun cuando Gemini devuelva `429`, `500`, `503`, timeout o una respuesta inválida, manteniendo:
 
-- preparación y división del contexto;
-- validación de evidencia;
-- normalización de páginas y ejercicios;
-- resolución de duplicados y conflictos;
-- proyección conservadora, equilibrada o exhaustiva;
-- caché, recuperación y fallback;
-- protección de las ediciones del usuario.
+- precisión semántica mediante modelos rápidos;
+- evidencia verificable;
+- funcionamiento sin corpus;
+- cero gasto automático;
+- configuración razonablemente sencilla;
+- continuidad cuando no hay red o ninguna cuota responde.
 
 ## Campos y estados
 
@@ -30,56 +53,118 @@ Los cinco campos permanentes continúan siendo:
 - Ejercicios hechos.
 - Tarea.
 
-Cada afirmación debe tener una categoría, un valor normalizado, un estado, confianza y evidencia. Estados admitidos: `PERFORMED`, `ASSIGNED`, `PROPOSED`, `CANCELLED`, `CORRECTED` y `UNCERTAIN`.
+Cada afirmación incluye categoría, valor normalizado, estado, confianza, origen y evidencia. Estados admitidos: `PERFORMED`, `ASSIGNED`, `PROPOSED`, `CANCELLED`, `CORRECTED` y `UNCERTAIN`.
 
 ## Arquitectura
 
 1. Whisper `base` transcribe audio localmente en español.
-2. `GeminiInterpretationPacketBuilder` agrupa spans por bloque, conserva ids y timestamps y limita cada paquete.
-3. `GeminiPromptFactory` solicita una extracción exhaustiva mediante JSON estructurado.
-4. `GeminiInterpretationClient` realiza llamadas de texto con un modelo Flash configurable.
-5. `GeminiResponseValidator` rechaza categorías, estados, referencias y evidencias inválidas.
-6. `SemanticClaimReducer` combina paquetes, resuelve duplicados y conserva correcciones posteriores.
-7. `InterpretationProjector` aplica los tres modos localmente sin nuevas llamadas.
-8. `InterpretationCache` reutiliza respuestas cuando el hash del texto, prompt y modelo no cambió.
-9. Si Gemini no está configurado, no hay red o se agotan los reintentos, `FallbackClaimExtractor` produce una ficha local básica y editable.
+2. `InterpretationPacketBuilder` agrupa spans por bloque, conserva ids artificiales y limita cada paquete.
+3. `InterpretationPromptFactory` crea un único prompt y un único esquema lógico para todos los proveedores.
+4. `FreeInferenceRouter` recorre solo proveedores configurados en orden Gemini, Groq y OpenRouter.
+5. Cada adaptador traduce el contrato común al formato HTTP de su proveedor.
+6. `SemanticResponseValidator` rechaza categorías, estados, referencias y evidencias inválidas.
+7. `SemanticClaimReducer` combina paquetes, resuelve duplicados y conserva correcciones posteriores.
+8. `InterpretationProjector` aplica los tres modos localmente sin nuevas llamadas.
+9. `InterpretationCache` reutiliza respuestas cuando paquete, prompt, esquema, proveedor y modelo no cambiaron.
+10. `FallbackClaimExtractor` genera una ficha local básica si ningún proveedor produce una respuesta válida.
 
-## Decisiones de privacidad
+## Política del router
 
-- El audio nunca se envía a Gemini.
-- Solo se envía texto transcripto con identificadores artificiales de spans.
-- No se envían nombres de archivo, rutas, ids internos de sesión ni metadatos del dispositivo.
-- La primera activación muestra que el nivel gratuito de Gemini puede utilizar el contenido enviado para mejorar productos de Google.
-- El usuario debe aceptar explícitamente antes de la primera solicitud.
-- La función se puede desactivar; Whisper y el fallback siguen disponibles.
-- La clave no se incluye en código, recursos, GitHub, APK, logs, Room ni backups.
-- En la versión privada, el usuario ingresa la credencial y se guarda cifrada con Android Keystore.
-- Si la aplicación se distribuye a terceros, la integración directa se reemplaza por Firebase AI Logic con App Check.
-- La app incorpora permiso de Internet exclusivamente para la interpretación Gemini.
+El router opera por paquete y nunca envía un paquete simultáneamente a varios proveedores.
 
-## Estrategia de paquetes
+Orden predeterminado:
 
-La unidad primaria es el bloque de clase. Para evitar solicitudes excesivas:
+```text
+Gemini -> Groq -> OpenRouter Free -> Local
+```
 
-- ordenar spans por timestamp;
-- producir paquetes de hasta 12.000 caracteres;
-- cortar preferentemente en pausas de al menos 4.000 ms;
-- repetir como contexto los últimos 2 spans del paquete anterior;
-- marcar esos spans como `contextOnly` para que Gemini no cree duplicados;
-- procesar paquetes secuencialmente para respetar límites gratuitos;
-- consolidar respuestas localmente, sin una segunda llamada.
+Solo se intenta un proveedor si está habilitado, tiene consentimiento vigente y posee una credencial guardada.
+
+Transiciones:
+
+- `401/403`: deshabilitar ese proveedor para la ejecución y continuar.
+- `429`: continuar inmediatamente con el siguiente proveedor.
+- `500/503`: realizar un reintento después de 2 segundos; luego continuar.
+- timeout: realizar un reintento; luego continuar.
+- JSON inválido o evidencia inválida: realizar una segunda solicitud correctiva al mismo proveedor una sola vez; luego continuar.
+- éxito validado: guardar caché y no consultar proveedores posteriores.
+- todos fallan: ejecutar fallback local.
+
+Esto limita a dos intentos por proveedor y evita cadenas largas de esperas.
+
+## Proveedores seleccionados
+
+### Gemini
+
+- Endpoint propio de Gemini.
+- Modelo Flash gratuito definido en configuración de compilación.
+- Salida estructurada mediante JSON Schema.
+- Clave enviada en `x-goog-api-key`.
+- Principal por calidad y porque el usuario ya utiliza Google AI Studio.
+
+### Groq
+
+- Endpoint compatible con OpenAI.
+- Modelo inicial: `openai/gpt-oss-20b`.
+- `response_format.type = json_schema` con `strict = true`.
+- Clave enviada como `Authorization: Bearer`.
+- Es el primer fallback porque el plan gratuito actual admite 30 solicitudes por minuto, 1.000 por día y salida estructurada estricta para ese modelo.
+
+### OpenRouter
+
+- Endpoint compatible con OpenAI.
+- Modelo fijo: `openrouter/free`.
+- Sin fallback interno hacia modelos pagos.
+- La salida se considera best effort y siempre pasa por el mismo validador local.
+- Se usa en último lugar porque el modelo concreto puede variar y el límite gratuito es menor.
+
+## Privacidad
+
+- El audio nunca se envía.
+- Solo se envía texto transcripto con ids artificiales.
+- No se envían rutas, ids internos de sesión, nombre del dispositivo ni metadatos personales agregados por la app.
+- El usuario acepta por separado cada proveedor antes de habilitarlo.
+- La UI enlaza la política de datos de cada servicio.
+- El nivel gratuito de Gemini puede usar contenido para mejorar productos de Google.
+- La configuración advierte que OpenRouter puede enrutar a diferentes proveedores de modelos.
+- Un proveedor deshabilitado nunca recibe datos.
+- La ficha indica qué proveedor resolvió cada claim.
+- La app puede funcionar solo con uno, dos o tres proveedores configurados.
+
+## Credenciales
+
+Las credenciales se ingresan en Ajustes y se guardan mediante Android Keystore. Se usa una entrada cifrada independiente por proveedor:
+
+- `diarioclase.inference.gemini.v1`
+- `diarioclase.inference.groq.v1`
+- `diarioclase.inference.openrouter.v1`
+
+Ninguna clave aparece en código, recursos, GitHub, APK, Room, logs, excepciones ni backups. La UI muestra únicamente los últimos cuatro caracteres. Cada proveedor ofrece guardar, probar y borrar clave.
+
+## Paquetes
+
+La unidad primaria es el bloque de clase:
+
+- hasta 12.000 caracteres;
+- corte preferente en pausas de al menos 4.000 ms;
+- últimos dos spans repetidos como `contextOnly`;
+- procesamiento secuencial;
+- consolidación local;
+- sin detector complejo previo de ambigüedad.
+
+No se implementa un selector de 10 a 30 fragmentos candidatos porque podría omitir temas y actividades sin palabras clave y recrearía el problema del extractor literal. Para el volumen personal, unos pocos paquetes por bloque caben ampliamente en las cuotas seleccionadas y simplifican la arquitectura.
 
 Cada span se representa así:
 
 ```text
-[S12|00:14:05-00:14:10] Vamos a la página cuarenta y dos.
-[S13|00:14:11-00:14:17] Hacemos los ejercicios tres y cuatro.
-[S14|00:14:18-00:14:24] El cuatro no, perdón, queda para casa.
+[B2-S12|00:14:05-00:14:10] Vamos a la página cuarenta y dos.
+[B2-S13|00:14:11-00:14:17] Hacemos los ejercicios tres y cuatro.
+[B2-S14|00:14:18-00:14:24] El cuatro no, perdón, queda para casa.
 ```
 
-## Contrato de Gemini
+## Contrato semántico común
 
-Gemini devuelve exclusivamente JSON conforme al esquema:
+Todos los adaptadores deben obtener este objeto, aunque cada API lo envuelva de manera diferente:
 
 ```json
 {
@@ -90,126 +175,125 @@ Gemini devuelve exclusivamente JSON conforme al esquema:
       "normalized_value": "3 (p. 42)",
       "status": "PERFORMED",
       "confidence": 0.96,
-      "evidence_span_ids": ["S12", "S13"],
+      "evidence_span_ids": ["B2-S12", "B2-S13"],
       "supersedes_claim_keys": []
     }
   ]
 }
 ```
 
-Instrucciones centrales del prompt:
+El prompt exige:
 
-- extraer solamente información pedagógica expresada;
-- no convertir preguntas, citas o planes futuros en acciones realizadas;
-- distinguir ejercicio realizado de tarea;
+- extraer solamente información expresada;
+- distinguir pregunta, cita, plan, acción realizada y tarea;
 - aplicar autocorrecciones posteriores;
 - no inventar páginas, ejercicios ni temas;
-- citar uno o más ids de spans para cada claim;
-- usar `UNCERTAIN` cuando el referente no pueda resolverse;
-- devolver todas las afirmaciones con evidencia, dejando los modos para la app.
+- citar ids válidos para cada claim;
+- usar `UNCERTAIN` cuando falta un referente;
+- producir extracción exhaustiva, dejando los modos para la app.
 
 ## Validación local
 
 Un claim solo puede avanzar si:
 
-- la categoría y el estado pertenecen a los enums conocidos;
-- el valor no está vacío y respeta los límites de longitud;
-- todos los ids de evidencia existen en el paquete;
-- al menos una evidencia no está marcada solo como contexto;
-- la página o el ejercicio aparecen en las evidencias o pueden vincularse a una página explícita del mismo bloque;
-- la confianza está entre 0 y 1;
-- el número total de claims no supera 100 por paquete;
-- ningún campo adicional modifica el modelo local.
+- categoría y estado pertenecen a los enums;
+- valor no vacío, máximo 300 caracteres;
+- confianza entre 0 y 1;
+- todos los ids existen;
+- al menos una evidencia no es solo contexto;
+- página o ejercicio están respaldados por evidencia o contexto explícito del mismo bloque;
+- máximo 100 claims por paquete;
+- propiedades adicionales no alteran el modelo local.
 
-Las respuestas inválidas no se reparan silenciosamente. Se registra un código de fallo, se conserva la transcripción y se ofrece reintentar o usar el fallback.
+La aplicación siempre construye `EvidenceRef` desde los spans locales. Nunca acepta como evidencia un fragmento textual inventado por el proveedor.
 
-## Modos
+## Modos y caché
 
-Gemini genera una sola interpretación exhaustiva. Los modos se aplican después:
+La primera respuesta válida produce una interpretación exhaustiva. Los modos se aplican localmente:
 
-- `CONSERVATIVE`: acepta confianza mínima 0,85; entre 0,60 y 0,85 queda por confirmar.
-- `BALANCED`: acepta confianza mínima 0,70; entre 0,40 y 0,70 queda por confirmar.
-- `EXHAUSTIVE`: acepta confianza mínima 0,55; entre 0,01 y 0,55 queda por confirmar.
+- `CONSERVATIVE`: acepta desde 0,85; confirma entre 0,60 y 0,85.
+- `BALANCED`: acepta desde 0,70; confirma entre 0,40 y 0,70.
+- `EXHAUSTIVE`: acepta desde 0,55; confirma entre 0,01 y 0,55.
 
-Cambiar de modo nunca retranscribe ni vuelve a llamar a Gemini.
+Cambiar de modo no consume inferencia.
 
-## Caché y consumo
+El caché combina SHA-256 del paquete, versión del prompt, versión del esquema, proveedor y modelo. Antes de llamar a un proveedor, el router busca una respuesta válida de cualquiera de los proveedores habilitados para ese mismo paquete. Así una respuesta previa de Gemini evita usar fallbacks al reabrir la sesión.
 
-La clave del caché combina:
+## Estado visible
 
-- SHA-256 del texto exacto del paquete;
-- versión del prompt;
-- identificador del modelo;
-- versión del esquema.
+La interfaz muestra:
 
-Una respuesta validada se reutiliza en reanudaciones y reproyecciones. Los fallos no se guardan como respuestas válidas. El usuario puede forzar una nueva interpretación mediante una acción explícita.
+- proveedor principal y fallbacks configurados;
+- orden efectivo;
+- paquete actual y total;
+- proveedor que está respondiendo;
+- cuota agotada, autenticación inválida, timeout o respuesta inválida;
+- origen `GEMINI`, `GROQ`, `OPENROUTER`, `MIXTO` o `LOCAL`;
+- acción de reintentar inferencia;
+- acción de continuar con ficha local.
 
-## Errores y fallback
-
-La integración distingue:
-
-- sin clave;
-- consentimiento no otorgado;
-- sin red;
-- autenticación inválida;
-- cuota agotada o `429`;
-- servidor no disponible o `500/503`;
-- timeout;
-- respuesta vacía;
-- JSON inválido;
-- evidencia inválida.
-
-Para `429`, `500` y `503` se realizan hasta tres intentos con espera de 2, 5 y 12 segundos. El timeout por solicitud es 90 segundos. Después se conserva todo, se muestra el error y se permite reintentar o generar una ficha básica local.
-
-## Seguridad de credenciales
-
-La clave se introduce en Ajustes y se guarda mediante una envoltura de Android Keystore. La UI solo muestra los últimos cuatro caracteres. Existe una acción para probar la conexión y otra para borrar la clave. Ningún test usa una clave real y GitHub Actions utiliza un cliente falso.
+No muestra estimaciones de cuota inventadas. Solo usa encabezados de límite si el proveedor los devuelve.
 
 ## Pruebas sin corpus
 
-La suite inicial usa transcripciones sintéticas y respuestas JSON preparadas. Incluye:
+La suite usa transcripciones sintéticas, clientes falsos y respuestas JSON preparadas. Cubre:
 
 - cinco categorías;
-- cifras y números escritos;
-- listas y rangos;
-- información repartida entre spans;
-- tareas asignadas, cambiadas y canceladas;
+- listas, rangos y autocorrecciones;
 - preguntas, citas y planes futuros;
-- correcciones con “no”, “perdón”, “mejor”, “en realidad” y “bah”;
-- duplicados entre paquetes;
-- referencias inválidas;
-- JSON truncado o con campos extra;
-- `429`, `500`, `503`, timeout y falta de red;
-- caché y cambio de modo;
-- campos editados por el usuario.
+- respuesta válida de cada proveedor;
+- Gemini 429 seguido de Groq exitoso;
+- Gemini y Groq caídos seguido de OpenRouter exitoso;
+- los tres fallan seguido de fallback local;
+- credencial ausente o inválida;
+- JSON incorrecto;
+- evidencia inexistente;
+- caché;
+- cambio de modo;
+- reapertura;
+- campos editados;
+- garantía de que un éxito detiene la cadena.
 
-No se necesita audio ni material real del usuario para implementar la fase. Los errores físicos futuros se convierten en escenarios sintéticos mínimos y anónimos.
+Ninguna prueba de CI usa red ni claves reales.
 
 ## Exclusiones
 
 No forman parte de esta fase:
 
-- enviar audio a Gemini;
-- usar Gemini para transcribir;
-- llamadas en tiempo real durante la grabación;
-- una segunda llamada para resumir respuestas;
-- entrenar un clasificador;
-- guardar la clave en el APK;
-- subir datos de feedback;
-- identificar hablantes;
-- exigir marcadores manuales durante la clase.
+- Cloudflare Workers AI;
+- Mistral API;
+- segundo modelo local;
+- servidor propio;
+- inferencia paralela;
+- selección aprendida de proveedor;
+- benchmarking automático de calidad;
+- envío de audio;
+- inferencia durante la grabación;
+- segunda llamada de consolidación;
+- identificación de hablantes;
+- modelos pagos o cambio automático a modelos pagos.
 
 ## Criterios de aceptación
 
-- Gemini recibe solo texto y referencias artificiales.
+- Gemini es principal; Groq y OpenRouter funcionan como fallbacks reales.
+- Solo se consultan proveedores configurados y consentidos.
+- Una respuesta válida detiene la cadena.
+- Agotar cuotas nunca inicia una operación paga.
 - Todos los claims visibles tienen evidencia válida.
-- Las correcciones posteriores prevalecen.
-- Preguntas, citas y planes futuros no generan falsos realizados.
-- Una respuesta malformada no corrompe la ficha ni elimina temporales.
-- Cambiar de modo no llama a Gemini.
-- Reanudar reutiliza caché válido.
-- Los campos editados permanecen intactos.
-- Sin clave o sin red existe una ficha local básica.
-- Ninguna credencial aparece en el repositorio, APK, base de datos, logs o backups.
-- Las pruebas, lint y ensamblado pasan en GitHub Actions.
-- El APK se prueba físicamente en el Moto g max con éxito, fallo y modo avión.
+- Cambiar de modo no llama a ningún proveedor.
+- Reabrir reutiliza caché.
+- La procedencia queda registrada por claim.
+- Sin ninguna inferencia remota queda una ficha local editable.
+- Un fallo nunca elimina audio, transcript ni resultados válidos previos.
+- Ninguna credencial aparece en repositorio, APK, Room, logs o backups.
+- CI pasa sin acceso a servicios externos.
+- El APK se prueba en Moto g max con éxito primario, fallback remoto y fallback local.
+
+## Referencias verificadas
+
+- Groq Free Plan y límites: https://console.groq.com/docs/rate-limits
+- Groq Structured Outputs: https://console.groq.com/docs/structured-outputs
+- OpenRouter límites gratuitos: https://openrouter.ai/docs/api_reference/limits
+- Gemini precios y nivel gratuito: https://ai.google.dev/gemini-api/docs/pricing
+- Cloudflare Workers AI pricing, excluido por complejidad: https://developers.cloudflare.com/workers-ai/platform/pricing/
+- Mistral Free mode, excluido por redundancia: https://docs.mistral.ai/
