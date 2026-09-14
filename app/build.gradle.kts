@@ -11,9 +11,15 @@ android {
         applicationId = "com.capo.diarioclase.phase2"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.3.0-phase3"
+        versionCode = 5
+        versionName = "0.4.0-phase4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk { abiFilters += "arm64-v8a" }
+        externalNativeBuild {
+            cmake {
+                cppFlags += listOf("-std=c++17", "-O3")
+            }
+        }
     }
     buildFeatures { compose = true }
     androidResources { noCompress += "bin" }
@@ -25,6 +31,12 @@ android {
             listOf("http.proxyHost", "http.proxyPort", "https.proxyHost", "https.proxyPort").forEach { key ->
                 System.getProperty(key)?.let { value -> test.systemProperty(key, value) }
             }
+        }
+    }
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
         }
     }
 }
