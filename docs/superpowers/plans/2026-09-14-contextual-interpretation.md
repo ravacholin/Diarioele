@@ -1,50 +1,62 @@
-# Gemini-Assisted Contextual Interpretation Implementation Plan
+# Free Multi-Provider Interpretation Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Incorporar interpretación semántica automática con Gemini Flash sobre la transcripción local de Whisper, validando toda afirmación contra evidencia y conservando caché, modos, edición segura y fallback local.
+**Goal:** Implementar interpretación semántica automática con Gemini como principal, Groq y OpenRouter Free como fallbacks remotos, y un extractor local como fallback final, sin corpus inicial ni cambio automático a servicios pagos.
 
-**Architecture:** Whisper continúa offline y produce spans inmutables. Un cliente Gemini recibe únicamente paquetes de texto identificados, devuelve JSON estructurado y un validador local lo convierte en claims; la reducción, los modos, el caché y la protección de campos editados permanecen deterministas en el teléfono. La clave se ingresa en la app y se cifra con Android Keystore, sin aparecer en el repositorio ni en el APK.
+**Architecture:** Whisper continúa local y produce spans inmutables. Un router secuencial entrega cada paquete textual al primer proveedor gratuito configurado que responda correctamente; un contrato y validador comunes convierten respuestas heterogéneas en claims con evidencia. Caché, modos, reducción, edición y fallback local permanecen deterministas en Android.
 
-**Tech Stack:** Kotlin 2.x, Android SDK 35, Jetpack Compose, Room, WorkManager, Android Keystore, `HttpURLConnection`, `kotlinx-serialization-json`, JUnit 4 y Robolectric.
+**Tech Stack:** Kotlin 2.x, Android SDK 35, Jetpack Compose, Room, WorkManager, Android Keystore, `HttpsURLConnection`, `kotlinx-serialization-json`, JUnit 4 y Robolectric.
 
 **Spec:** `docs/superpowers/specs/2026-09-14-contextual-interpretation-design.md`
 
 ## Global Constraints
 
-- Whisper `base` continúa local, fijo en español y sin cambios semánticos.
-- Nunca se envía audio, rutas de archivos, ids internos de sesión ni metadatos del dispositivo.
-- Gemini recibe únicamente texto, ids artificiales de spans y tiempos relativos.
-- El nivel gratuito requiere consentimiento explícito porque Google puede usar el contenido para mejorar productos.
-- La clave no se incluye en código, recursos, GitHub, APK, Room, logs ni backups.
-- La app agrega Internet exclusivamente para interpretar texto con Gemini.
-- `CONSERVATIVE` continúa como modo predeterminado.
-- Cambiar de modo no retranscribe ni vuelve a llamar a Gemini.
-- Los campos editados por el usuario nunca se sobrescriben.
-- Audio y temporales solo se borran después de aprobar y verificar el diario permanente.
-- Sin clave, sin red o tras agotar reintentos, la app conserva todo y ofrece fallback local.
-- Ninguna prueba de CI realiza llamadas reales ni contiene credenciales.
-- Cada tarea se sube a `feature/phase5-contextual-interpretation` y debe tener GitHub Actions verde antes de continuar.
+- Proveedores remotos permitidos: Gemini, Groq y `openrouter/free`.
+- Orden predeterminado: Gemini, Groq, OpenRouter, local.
+- No incorporar Cloudflare, Mistral, servidor propio ni segundo modelo Android.
+- No admitir ids de modelos pagos ingresados libremente.
+- Cada proveedor remoto requiere clave y consentimiento independientes.
+- Las claves pertenecen a proyectos o cuentas sin facturación habilitada.
+- La aplicación nunca envía audio, rutas ni ids internos.
+- La aplicación nunca consulta dos proveedores en paralelo.
+- Una respuesta validada detiene la cadena.
+- `429` avanza inmediatamente al siguiente proveedor.
+- `500`, `503` y timeout admiten un solo reintento por proveedor.
+- Ninguna prueba de CI usa claves reales ni acceso de red.
+- Cambiar de modo no retranscribe ni consume inferencia.
+- Los campos editados no se sobrescriben.
+- Ningún fallo elimina audio, transcript, caché válido ni evidencia.
+- Cada tarea se sube a `feature/phase5-contextual-interpretation` y se valida con GitHub Actions.
 
 ---
 
-### Task 1: Contratos, escenarios sintéticos y cliente falso
+### Task 1: Contrato común y escenarios sintéticos
 
 **Files:**
-- Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/SemanticInterpretationModels.kt`
-- Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/SemanticInterpretationClient.kt`
-- Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/SyntheticSemanticScenarios.kt`
-- Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/FakeSemanticInterpretationClient.kt`
-- Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/SemanticInterpretationContractTest.kt`
+- Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/InferenceModels.kt`
+- Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/InferenceProviderClient.kt`
+- Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/FakeInferenceProviderClient.kt`
+- Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/SyntheticInterpretationScenarios.kt`
+- Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/InferenceContractTest.kt`
 
 **Interfaces:**
-- Consumes: paquetes de spans textuales.
-- Produces: `suspend fun interpret(request: SemanticInterpretationRequest): SemanticInterpretationOutcome`.
+- Consumes: `InterpretationRequest`.
+- Produces: `suspend fun infer(request): ProviderOutcome`.
 
-- [ ] **Step 1: Crear tipos de entrada y salida**
+- [ ] **Step 1: Crear modelos comunes**
 
 ```kotlin
-data class SemanticSpan(
+enum class InferenceProvider { GEMINI, GROQ, OPENROUTER }
+
+data class ProviderProfile(
+    val provider: InferenceProvider,
+    val modelId: String,
+    val enabled: Boolean,
+    val consentVersion: String?,
+)
+
+data class PublicTranscriptSpan(
     val publicId: String,
     val blockOrdinal: Int,
     val startMs: Long,
@@ -53,24 +65,30 @@ data class SemanticSpan(
     val contextOnly: Boolean,
 )
 
-data class SemanticInterpretationRequest(
+data class InterpretationRequest(
     val packetId: String,
     val promptVersion: String,
     val schemaVersion: String,
-    val modelId: String,
-    val spans: List<SemanticSpan>,
+    val spans: List<PublicTranscriptSpan>,
 )
 
-sealed interface SemanticInterpretationOutcome {
-    data class Success(val rawJson: String) : SemanticInterpretationOutcome
+sealed interface ProviderOutcome {
+    data class Success(
+        val provider: InferenceProvider,
+        val modelId: String,
+        val rawJson: String,
+    ) : ProviderOutcome
+
     data class Failure(
-        val code: SemanticFailure,
+        val provider: InferenceProvider,
+        val code: ProviderFailure,
         val retryable: Boolean,
         val httpStatus: Int? = null,
-    ) : SemanticInterpretationOutcome
+        val retryAfterMs: Long? = null,
+    ) : ProviderOutcome
 }
 
-enum class SemanticFailure {
+enum class ProviderFailure {
     NOT_CONFIGURED,
     CONSENT_REQUIRED,
     NO_NETWORK,
@@ -83,16 +101,14 @@ enum class SemanticFailure {
     INTERNAL,
 }
 
-fun interface SemanticInterpretationClient {
-    suspend fun interpret(
-        request: SemanticInterpretationRequest,
-    ): SemanticInterpretationOutcome
+fun interface InferenceProviderClient {
+    suspend fun infer(request: InterpretationRequest): ProviderOutcome
 }
 ```
 
-- [ ] **Step 2: Crear escenarios sin corpus real**
+- [ ] **Step 2: Crear escenarios sintéticos**
 
-La matriz mínima debe contener spans sintéticos para:
+Incluir el recorrido:
 
 ```text
 Hoy trabajamos el contraste entre perfecto e indefinido.
@@ -103,157 +119,168 @@ La próxima clase vamos a ver los pronombres.
 ¿Hicieron el ejercicio cinco?
 ```
 
-Esperar tema de pasados, página 42, ejercicio 3 realizado y ejercicio 4 como tarea. Prohibir pronombres como tema realizado y ejercicio 5 como realizado o asignado.
+Esperar página 42, ejercicio 3 realizado y ejercicio 4 como tarea. Prohibir pronombres como tema realizado y ejercicio 5 como realizado o asignado.
 
-Agregar escenarios independientes con números escritos, listas, rangos, cambios de página, preguntas, citas, negaciones, autocorrecciones, repeticiones legítimas y duplicados entre paquetes.
+Agregar listas, rangos, números en palabras, cambio de página, citas, negaciones, autocorrecciones, repetición legítima y duplicación entre paquetes.
 
-- [ ] **Step 3: Implementar el cliente falso**
+- [ ] **Step 3: Implementar fake configurable**
 
-`FakeSemanticInterpretationClient` guarda cada request recibido y devuelve resultados encolados. Debe permitir verificar cantidad de llamadas, modelo, paquetes y reintentos sin usar red.
+`FakeInferenceProviderClient` recibe proveedor y cola de outcomes; registra requests e intentos. Permite simular 401, 429, 500, 503, timeout, JSON inválido y éxito.
 
-- [ ] **Step 4: Escribir el contract test rojo**
+- [ ] **Step 4: Escribir pruebas rojas del contrato**
 
-El contract test construye `SemanticInterpretationRequest`, invoca la futura tubería híbrida y afirma categorías, estados, evidencias, exclusiones y ausencia de llamadas adicionales al cambiar de modo.
+Afirmar que un resultado final solo contiene claims con evidencia local válida y que la procedencia coincide con el proveedor que produjo el JSON.
 
-- [ ] **Step 5: Ejecutar para confirmar rojo**
+- [ ] **Step 5: Ejecutar rojo**
 
 Run:
 
 ```bash
-./gradlew testDebugUnitTest --tests '*SemanticInterpretationContractTest'
+./gradlew testDebugUnitTest --tests '*InferenceContractTest'
 ```
 
-Expected: FAIL porque la tubería todavía no existe.
+Expected: FAIL porque el router y el validador todavía no existen.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add app/src/main/java/com/capo/diarioclase/processing/semantic app/src/test/java/com/capo/diarioclase/processing/semantic
-git commit -m "test: define Gemini interpretation contract"
+git commit -m "test: define free inference provider contract"
 ```
 
 ---
 
-### Task 2: Consentimiento y credencial cifrada
+### Task 2: Configuración free-only, consentimiento y claves cifradas
 
 **Files:**
-- Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/GeminiSettings.kt`
-- Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/GeminiCredentialStore.kt`
-- Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/GeminiSettingsTest.kt`
-- Create: `app/src/androidTest/java/com/capo/diarioclase/processing/semantic/GeminiCredentialStoreTest.kt`
+- Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/FreeProviderCatalog.kt`
+- Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/ProviderSettingsStore.kt`
+- Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/ProviderCredentialStore.kt`
+- Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/FreeProviderCatalogTest.kt`
+- Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/ProviderSettingsStoreTest.kt`
+- Create: `app/src/androidTest/java/com/capo/diarioclase/processing/semantic/ProviderCredentialStoreTest.kt`
 - Modify: `app/src/main/res/xml/backup_rules.xml`
 - Modify: `app/src/main/res/xml/data_extraction_rules.xml`
 
 **Interfaces:**
-- Consumes: clave introducida por el usuario y decisión de consentimiento.
-- Produces: `GeminiConfiguration(enabled, consentVersion, modelId)` y acceso cifrado mediante `CredentialStore`.
+- Consumes: claves y decisiones del usuario.
+- Produces: perfiles habilitados en orden y credenciales descifradas solo durante una llamada.
 
-- [ ] **Step 1: Escribir pruebas de configuración**
-
-Probar que Gemini no puede habilitarse sin consentimiento `gemini-free-data-v1`; que revocarlo deshabilita llamadas; que el modelo predeterminado es `gemini-3-flash-preview`; y que el id puede cambiarse sin alterar respuestas cacheadas de otro modelo.
-
-- [ ] **Step 2: Definir interfaces**
+- [ ] **Step 1: Escribir pruebas del catálogo**
 
 ```kotlin
-data class GeminiConfiguration(
-    val enabled: Boolean,
-    val consentVersion: String?,
-    val modelId: String = "gemini-3-flash-preview",
-)
-
-interface CredentialStore {
-    fun hasCredential(): Boolean
-    fun saveCredential(value: CharArray)
-    fun readCredential(): CharArray?
-    fun clearCredential()
+object FreeProviderCatalog {
+    val profiles = listOf(
+        ProviderProfile(
+            InferenceProvider.GEMINI,
+            "gemini-3-flash-preview",
+            enabled = false,
+            consentVersion = null,
+        ),
+        ProviderProfile(
+            InferenceProvider.GROQ,
+            "openai/gpt-oss-20b",
+            enabled = false,
+            consentVersion = null,
+        ),
+        ProviderProfile(
+            InferenceProvider.OPENROUTER,
+            "openrouter/free",
+            enabled = false,
+            consentVersion = null,
+        ),
+    )
 }
 ```
 
-- [ ] **Step 3: Implementar almacenamiento con Keystore**
+Afirmar que no existe método público para guardar otro `modelId`, que OpenRouter siempre termina en `/free` y que el orden es estable.
 
-Crear una clave AES/GCM no exportable bajo el alias `diarioclase.gemini.credential.v1`. Cifrar la credencial y escribir nonce más ciphertext mediante `AtomicFile` dentro de `noBackupFilesDir`. Sobrescribir los `CharArray` temporales después de usarlos. No registrar excepciones con valores sensibles.
+- [ ] **Step 2: Definir almacenamiento**
 
-- [ ] **Step 4: Excluir credenciales de extracción y backups**
+```kotlin
+interface ProviderCredentialStore {
+    fun hasCredential(provider: InferenceProvider): Boolean
+    fun saveCredential(provider: InferenceProvider, value: CharArray)
+    fun readCredential(provider: InferenceProvider): CharArray?
+    fun clearCredential(provider: InferenceProvider)
+}
+```
 
-Agregar reglas explícitas para excluir cualquier archivo `gemini-credential-*`. Verificar que el archivo real vive en `noBackupFilesDir`.
+`ProviderSettingsStore` persiste enabled, consentimiento y orden, pero no secretos.
+
+- [ ] **Step 3: Implementar Android Keystore**
+
+Crear una clave AES/GCM no exportable por proveedor. Guardar nonce y ciphertext con `AtomicFile` dentro de `noBackupFilesDir`. Sobrescribir buffers `CharArray` después del uso. No incluir claves en mensajes, excepciones o logs.
+
+- [ ] **Step 4: Excluir credenciales de backups**
+
+Excluir `provider-credential-*` en ambas reglas de extracción y confirmar que los archivos viven en `noBackupFilesDir`.
 
 - [ ] **Step 5: Ejecutar pruebas**
 
 Run:
 
 ```bash
-./gradlew testDebugUnitTest --tests '*GeminiSettingsTest' assembleDebugAndroidTest
+./gradlew testDebugUnitTest --tests '*FreeProviderCatalogTest' --tests '*ProviderSettingsStoreTest' assembleDebugAndroidTest
 ```
 
-Expected: PASS y APK instrumental compilado.
+Expected: PASS.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add app/src/main/java/com/capo/diarioclase/processing/semantic app/src/test/java/com/capo/diarioclase/processing/semantic app/src/androidTest/java/com/capo/diarioclase/processing/semantic app/src/main/res/xml
-git commit -m "feat: store Gemini consent and credential securely"
+git commit -m "feat: configure encrypted free inference providers"
 ```
 
 ---
 
-### Task 3: Paquetes contextuales y minimización de datos
+### Task 3: Paquetes contextuales mínimos
 
 **Files:**
-- Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/GeminiInterpretationPacketBuilder.kt`
-- Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/GeminiInterpretationPacketBuilderTest.kt`
+- Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/InterpretationPacketBuilder.kt`
+- Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/InterpretationPacketBuilderTest.kt`
 
 **Interfaces:**
 - Consumes: `List<TranscriptSpan>`.
-- Produces: `fun build(spans: List<TranscriptSpan>, modelId: String): List<SemanticInterpretationRequest>`.
+- Produces: `fun build(spans): List<InterpretationRequest>`.
 
-- [ ] **Step 1: Escribir pruebas de empaquetado**
+- [ ] **Step 1: Escribir pruebas**
 
-Probar que:
+Probar orden por bloque y tiempo, corte a 12.000 caracteres, preferencia por pausas de 4.000 ms, dos spans de contexto, ids públicos `B2-S17` y ausencia de ids de sesión, segmentos, rutas o archivos.
 
-- los spans se ordenan por bloque y timestamp;
-- un paquete nunca mezcla bloques;
-- se corta antes de superar 12.000 caracteres;
-- se prefiere una pausa de 4.000 ms como corte;
-- los últimos dos spans reaparecen como `contextOnly = true`;
-- cada id público es secuencial, como `B2-S17`;
-- no aparecen ids de sesión, segmentos, rutas ni nombres de archivo;
-- el texto del span se conserva literalmente.
-
-- [ ] **Step 2: Ejecutar para confirmar rojo**
+- [ ] **Step 2: Ejecutar rojo**
 
 Run:
 
 ```bash
-./gradlew testDebugUnitTest --tests '*GeminiInterpretationPacketBuilderTest'
+./gradlew testDebugUnitTest --tests '*InterpretationPacketBuilderTest'
 ```
 
 Expected: FAIL por clase inexistente.
 
-- [ ] **Step 3: Implementar el constructor**
+- [ ] **Step 3: Implementar constructor**
 
 ```kotlin
-class GeminiInterpretationPacketBuilder(
+class InterpretationPacketBuilder(
     private val maxCharacters: Int = 12_000,
     private val preferredPauseMs: Long = 4_000,
     private val overlapSpans: Int = 2,
-    private val promptVersion: String = "gemini-ele-v1",
+    private val promptVersion: String = "free-ele-v1",
     private val schemaVersion: String = "claims-v1",
 ) {
-    fun build(
-        spans: List<TranscriptSpan>,
-        modelId: String,
-    ): List<SemanticInterpretationRequest>
+    fun build(spans: List<TranscriptSpan>): List<InterpretationRequest>
 }
 ```
 
-El `packetId` debe ser SHA-256 de versión, modelo y representación textual del paquete. No incluir ids internos.
+Calcular `packetId` mediante SHA-256 de versiones y representación textual exacta. No implementar detección semántica previa de candidatos.
 
-- [ ] **Step 4: Ejecutar pruebas**
+- [ ] **Step 4: Ejecutar verde**
 
 Run:
 
 ```bash
-./gradlew testDebugUnitTest --tests '*GeminiInterpretationPacketBuilderTest'
+./gradlew testDebugUnitTest --tests '*InterpretationPacketBuilderTest'
 ```
 
 Expected: PASS.
@@ -261,196 +288,198 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add app/src/main/java/com/capo/diarioclase/processing/semantic/GeminiInterpretationPacketBuilder.kt app/src/test/java/com/capo/diarioclase/processing/semantic/GeminiInterpretationPacketBuilderTest.kt
-git commit -m "feat: build minimized contextual Gemini packets"
+git add app/src/main/java/com/capo/diarioclase/processing/semantic/InterpretationPacketBuilder.kt app/src/test/java/com/capo/diarioclase/processing/semantic/InterpretationPacketBuilderTest.kt
+git commit -m "feat: build compact contextual interpretation packets"
 ```
 
 ---
 
-### Task 4: Prompt, JSON estructurado y cliente Gemini
+### Task 4: Prompt común y tres adaptadores HTTP
 
 **Files:**
 - Modify: `app/build.gradle.kts`
-- Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/GeminiPromptFactory.kt`
-- Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/GeminiHttpTransport.kt`
-- Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/GeminiApiClient.kt`
-- Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/GeminiPromptFactoryTest.kt`
-- Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/GeminiApiClientTest.kt`
 - Modify: `app/src/main/AndroidManifest.xml`
+- Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/InterpretationPromptFactory.kt`
+- Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/InferenceHttpTransport.kt`
+- Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/GeminiProviderClient.kt`
+- Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/OpenAiCompatibleProviderClient.kt`
+- Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/InterpretationPromptFactoryTest.kt`
+- Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/GeminiProviderClientTest.kt`
+- Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/OpenAiCompatibleProviderClientTest.kt`
 
 **Interfaces:**
-- Consumes: `SemanticInterpretationRequest` y credencial.
-- Produces: implementación de `SemanticInterpretationClient`.
+- Consumes: request, perfil y credencial.
+- Produces: tres implementaciones lógicas mediante dos clientes HTTP.
 
-- [ ] **Step 1: Agregar parser JSON**
+- [ ] **Step 1: Agregar dependencias y permisos**
 
-Agregar `org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3`. No aplicar el plugin de serialización; analizar mediante `JsonElement` para que campos inesperados puedan validarse explícitamente.
-
-- [ ] **Step 2: Escribir pruebas del prompt**
-
-Afirmar que el prompt:
-
-- enumera solo las cinco categorías y seis estados;
-- exige evidencia mediante ids;
-- prohíbe inferencias sin evidencia;
-- distingue preguntas, planes futuros, citas y correcciones;
-- solicita extracción exhaustiva independiente del modo;
-- marca spans `contextOnly`;
-- no contiene la clave ni identificadores internos.
-
-- [ ] **Step 3: Implementar `GeminiPromptFactory`**
-
-Crear `systemInstruction`, texto de spans y `responseJsonSchema`. El esquema exige `claims`, limita enums y declara `additionalProperties: false`.
-
-- [ ] **Step 4: Escribir pruebas del cliente con transporte falso**
-
-Cubrir respuestas 200, 400, 401/403, 429, 500/503, timeout, cuerpo vacío y JSON de envoltura sin candidato. Verificar encabezado `x-goog-api-key` y que su valor nunca aparece en excepciones.
-
-- [ ] **Step 5: Implementar transporte**
-
-```kotlin
-interface GeminiHttpTransport {
-    suspend fun post(
-        url: String,
-        headers: Map<String, String>,
-        body: String,
-        timeoutMs: Int,
-    ): HttpTransportResult
-}
-
-data class HttpTransportResult(
-    val status: Int,
-    val body: String,
-)
-```
-
-La implementación usa `HttpsURLConnection`, `connectTimeout = 30_000`, `readTimeout = 90_000`, UTF-8 y cierre seguro de streams.
-
-- [ ] **Step 6: Implementar cliente**
-
-Usar:
-
-```text
-https://generativelanguage.googleapis.com/v1beta/models/{modelId}:generateContent
-```
-
-Enviar la clave solamente en `x-goog-api-key`. Extraer el texto JSON del primer candidato. Mapear 401/403 a `AUTHENTICATION`, 429 a `QUOTA`, 500/503 a `SERVER_UNAVAILABLE` y timeouts a `TIMEOUT`.
-
-- [ ] **Step 7: Agregar permiso de Internet**
-
-Agregar solamente:
+Agregar `org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3` sin plugin de serialización. Agregar:
 
 ```xml
 <uses-permission android:name="android.permission.INTERNET" />
 <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 ```
 
-No modificar permisos de grabación ni foreground service.
+- [ ] **Step 2: Escribir pruebas del prompt**
 
-- [ ] **Step 8: Ejecutar pruebas**
+Afirmar categorías, estados, evidencia obligatoria, prohibición de inventar, manejo de preguntas, citas, planes, autocorrecciones y `contextOnly`. El modo no aparece en el prompt.
+
+- [ ] **Step 3: Implementar prompt y esquema**
+
+`InterpretationPromptFactory.create(request)` devuelve system instruction, user text y JSON Schema lógico compartido. Todos los campos son obligatorios y `additionalProperties` es falso.
+
+- [ ] **Step 4: Definir transporte**
+
+```kotlin
+interface InferenceHttpTransport {
+    suspend fun request(
+        url: String,
+        headers: Map<String, String>,
+        body: String,
+        connectTimeoutMs: Int = 30_000,
+        readTimeoutMs: Int = 90_000,
+    ): HttpTransportResult
+}
+
+data class HttpTransportResult(
+    val status: Int,
+    val body: String,
+    val headers: Map<String, String>,
+)
+```
+
+La implementación usa `HttpsURLConnection`, UTF-8 y cierre seguro de streams.
+
+- [ ] **Step 5: Implementar Gemini**
+
+Endpoint:
+
+```text
+https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent
+```
+
+Enviar `x-goog-api-key`, nunca query string. Solicitar `application/json` con esquema. Extraer JSON del primer candidato.
+
+- [ ] **Step 6: Implementar cliente compatible con OpenAI**
+
+```kotlin
+data class OpenAiCompatibleProfile(
+    val provider: InferenceProvider,
+    val endpoint: String,
+    val modelId: String,
+    val strictJsonSchema: Boolean,
+)
+```
+
+Perfiles fijos:
+
+```kotlin
+OpenAiCompatibleProfile(
+    InferenceProvider.GROQ,
+    "https://api.groq.com/openai/v1/chat/completions",
+    "openai/gpt-oss-20b",
+    strictJsonSchema = true,
+)
+
+OpenAiCompatibleProfile(
+    InferenceProvider.OPENROUTER,
+    "https://openrouter.ai/api/v1/chat/completions",
+    "openrouter/free",
+    strictJsonSchema = false,
+)
+```
+
+Groq usa `response_format.type = json_schema`, `strict = true`. OpenRouter pide JSON por prompt y, cuando sea admitido, `response_format.type = json_object`; la validación local sigue siendo obligatoria.
+
+- [ ] **Step 7: Mapear errores uniformemente**
+
+401/403 a `AUTHENTICATION`; 429 a `QUOTA`; 500/503 a `SERVER_UNAVAILABLE`; timeout a `TIMEOUT`; cuerpo vacío a `EMPTY_RESPONSE`. Leer `Retry-After` sin superar 5 segundos. Ningún error incluye request body ni credencial.
+
+- [ ] **Step 8: Ejecutar pruebas con transporte falso**
 
 Run:
 
 ```bash
-./gradlew testDebugUnitTest --tests '*GeminiPromptFactoryTest' --tests '*GeminiApiClientTest'
+./gradlew testDebugUnitTest --tests '*InterpretationPromptFactoryTest' --tests '*GeminiProviderClientTest' --tests '*OpenAiCompatibleProviderClientTest'
 ```
 
-Expected: PASS sin tráfico real.
+Expected: PASS sin red real.
 
 - [ ] **Step 9: Commit**
 
 ```bash
 git add app/build.gradle.kts app/src/main/AndroidManifest.xml app/src/main/java/com/capo/diarioclase/processing/semantic app/src/test/java/com/capo/diarioclase/processing/semantic
-git commit -m "feat: call Gemini with evidence-bound structured output"
+git commit -m "feat: add Gemini Groq and OpenRouter adapters"
 ```
 
 ---
 
-### Task 5: Validación, reducción y modos
+### Task 5: Validador común, reducción y procedencia
 
 **Files:**
-- Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/GeminiResponseValidator.kt`
+- Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/SemanticResponseValidator.kt`
 - Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/SemanticClaimReducer.kt`
-- Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/GeminiResponseValidatorTest.kt`
+- Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/SemanticResponseValidatorTest.kt`
 - Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/SemanticClaimReducerTest.kt`
+- Modify: `app/src/main/java/com/capo/diarioclase/processing/evidence/EvidenceModels.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/evidence/InterpretationProjector.kt`
 - Modify: `app/src/test/java/com/capo/diarioclase/processing/evidence/InterpretationProjectorTest.kt`
 
 **Interfaces:**
-- Consumes: JSON crudo y mapa de `SemanticSpan`.
-- Produces: `ValidationOutcome.Valid(List<RawClaim>)` o `ValidationOutcome.Invalid`.
+- Consumes: JSON crudo, proveedor y spans públicos.
+- Produces: claims locales o error de validación.
 
-- [ ] **Step 1: Escribir pruebas de validación adversarial**
+- [ ] **Step 1: Ampliar origen**
 
-Rechazar:
+Agregar `GEMINI`, `GROQ` y `OPENROUTER` a `ClaimOrigin`, manteniendo `LOCAL_RULE`, `MANUAL_MARKER` y `USER_EDIT`.
 
-- categoría o estado desconocidos;
-- confianza fuera de `0.0..1.0`;
-- value vacío o mayor a 300 caracteres;
-- más de 100 claims;
-- ids inexistentes;
-- evidencia compuesta solo por spans `contextOnly`;
-- página o ejercicio sin soporte textual ni contexto de página;
-- propiedades no previstas;
-- JSON truncado.
+- [ ] **Step 2: Escribir pruebas adversariales**
 
-Aceptar autocorrecciones que indiquen `supersedes_claim_keys` válidas.
+Rechazar enums desconocidos, confianza fuera de rango, value vacío o mayor a 300 caracteres, más de 100 claims, ids inexistentes, evidencia solo contextual, referencias numéricas sin soporte y JSON truncado.
 
-- [ ] **Step 2: Implementar validador estricto**
+- [ ] **Step 3: Implementar validación**
 
 ```kotlin
 sealed interface ValidationOutcome {
     data class Valid(val claims: List<RawClaim>) : ValidationOutcome
     data class Invalid(val reason: ValidationFailure) : ValidationOutcome
 }
-
-enum class ValidationFailure {
-    MALFORMED_JSON,
-    UNKNOWN_FIELD,
-    UNKNOWN_ENUM,
-    INVALID_VALUE,
-    INVALID_CONFIDENCE,
-    TOO_MANY_CLAIMS,
-    MISSING_EVIDENCE,
-    UNKNOWN_EVIDENCE,
-    UNSUPPORTED_REFERENCE,
-}
 ```
 
-Todos los `RawClaim` de Gemini usan `ClaimOrigin.SEMANTIC` y construyen `EvidenceRef` desde spans locales, nunca desde texto devuelto por el modelo.
+Construir `EvidenceRef` desde spans locales y asignar origen según proveedor. Nunca aceptar evidencia textual devuelta por el modelo.
 
-- [ ] **Step 3: Escribir pruebas del reductor**
+- [ ] **Step 4: Escribir pruebas del reductor**
 
-Probar duplicados por solapamiento, misma página en paquetes sucesivos, ejercicio corregido, ejercicio movido a tarea, cancelación posterior y conflicto ambiguo.
+Cubrir solapamiento, misma página repetida, ejercicio corregido, ejercicio movido a tarea, cancelación posterior y conflicto ambiguo.
 
-- [ ] **Step 4: Implementar reducción**
+- [ ] **Step 5: Implementar reducción**
 
-`SemanticClaimReducer.reduce(packetClaims)` procesa claims por bloque y tiempo. Conserva claims reemplazados con `active = false`; no cancela otros ejercicios de una lista; y transforma conflictos sin referente único en `UNCERTAIN`.
+Procesar claims por bloque y tiempo. Conservar reemplazados inactivos, afectar solo el elemento referido y usar `UNCERTAIN` cuando haya dos antecedentes posibles.
 
-- [ ] **Step 5: Confirmar que los modos son locales**
+- [ ] **Step 6: Verificar modos locales**
 
-Mantener los umbrales actuales y agregar una prueba que proyecte los mismos claims en los tres modos sin invocar ningún cliente.
+Proyectar los mismos claims en `CONSERVATIVE`, `BALANCED` y `EXHAUSTIVE` sin usar clientes.
 
-- [ ] **Step 6: Ejecutar pruebas**
+- [ ] **Step 7: Ejecutar pruebas**
 
 Run:
 
 ```bash
-./gradlew testDebugUnitTest --tests '*GeminiResponseValidatorTest' --tests '*SemanticClaimReducerTest' --tests '*InterpretationProjectorTest'
+./gradlew testDebugUnitTest --tests '*SemanticResponseValidatorTest' --tests '*SemanticClaimReducerTest' --tests '*InterpretationProjectorTest'
 ```
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add app/src/main/java/com/capo/diarioclase/processing app/src/test/java/com/capo/diarioclase/processing
-git commit -m "feat: validate and reduce Gemini claims locally"
+git commit -m "feat: validate multi-provider claims with local evidence"
 ```
 
 ---
 
-### Task 6: Caché persistente y migración Room
+### Task 6: Caché por paquete y proveedor
 
 **Files:**
 - Modify: `app/src/main/java/com/capo/diarioclase/data/db/Entities.kt`
@@ -461,20 +490,25 @@ git commit -m "feat: validate and reduce Gemini claims locally"
 - Modify: `app/src/test/java/com/capo/diarioclase/FullJourneyTest.kt`
 
 **Interfaces:**
-- Consumes: `packetId`, modelo, versiones y JSON ya validado.
-- Produces: `InterpretationCache.get(packetId)` y `putValidated(entry)`.
+- Consumes: paquete, proveedor, modelo, versiones y JSON validado.
+- Produces: respuestas reutilizables sin inferencia.
 
 - [ ] **Step 1: Escribir pruebas rojas**
 
-Probar acierto por hash idéntico, fallo al cambiar texto, modelo, prompt o esquema; ausencia de caché para respuesta inválida; conservación ante cierre; y eliminación solamente después de aprobar.
+Probar acierto por paquete idéntico, invalidación al cambiar texto, prompt o esquema, conservación entre reaperturas y borrado solo tras aprobar.
 
 - [ ] **Step 2: Agregar entidad**
 
 ```kotlin
-@Entity(tableName = "interpretation_cache")
+@Entity(
+    tableName = "interpretation_cache",
+    indices = [Index("sessionId"), Index("packetId")],
+)
 data class InterpretationCacheEntity(
-    @PrimaryKey val packetId: String,
+    @PrimaryKey val cacheId: String,
+    val packetId: String,
     val sessionId: String,
+    val provider: String,
     val modelId: String,
     val promptVersion: String,
     val schemaVersion: String,
@@ -483,15 +517,21 @@ data class InterpretationCacheEntity(
 )
 ```
 
-- [ ] **Step 3: Implementar migración Room 4→5**
+`cacheId` es SHA-256 de paquete, proveedor, modelo, prompt y esquema.
 
-Crear tabla e índice por `sessionId`. Registrar `MIGRATION_4_5` sin tocar audio, transcript, checkpoints, evidencia, borradores ni diarios.
+- [ ] **Step 3: Migrar Room 4→5**
 
-- [ ] **Step 4: Incorporar limpieza segura**
+Crear tabla e índices sin tocar sesiones, audio, transcript, checkpoints, evidencia ni borradores.
 
-Agregar consulta, inserción, borrado por sesión y conteo temporal. `CleanupCoordinator` debe verificar que no quede caché después de aprobar; ante cualquier fallo conserva todas las filas y el audio.
+- [ ] **Step 4: Implementar búsqueda transversal**
 
-- [ ] **Step 5: Ejecutar pruebas**
+Antes de consultar la red, buscar cualquier caché válido del paquete para proveedores actualmente habilitados, respetando el orden. Una respuesta Gemini previa evita consultar Groq y OpenRouter.
+
+- [ ] **Step 5: Incorporar limpieza**
+
+Sumar caché a conteo y borrado temporal. Ante fallo de limpieza conservar todo.
+
+- [ ] **Step 6: Ejecutar pruebas**
 
 Run:
 
@@ -501,81 +541,150 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add app/src/main/java/com/capo/diarioclase/data app/src/main/java/com/capo/diarioclase/processing/semantic app/src/test/java/com/capo/diarioclase
-git commit -m "feat: cache validated Gemini interpretation packets"
+git commit -m "feat: cache validated free provider responses"
 ```
 
 ---
 
-### Task 7: Coordinador híbrido, reintentos y fallback
+### Task 7: Router secuencial y fallback local
 
 **Files:**
-- Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/HybridInterpretationCoordinator.kt`
+- Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/FreeInferenceRouter.kt`
+- Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/ProviderRetryPolicy.kt`
 - Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/FallbackClaimExtractor.kt`
-- Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/HybridInterpretationCoordinatorTest.kt`
+- Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/FreeInferenceRouterTest.kt`
+- Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/ProviderRetryPolicyTest.kt`
+
+**Interfaces:**
+- Consumes: orden, clientes, credenciales, caché, validador y paquete.
+- Produces: `RoutedPacketOutcome`.
+
+- [ ] **Step 1: Escribir matriz de rutas**
+
+Probar:
+
+- Gemini éxito: una llamada total.
+- Gemini 429 y Groq éxito.
+- Gemini 503 dos veces y Groq éxito.
+- Gemini y Groq 429, OpenRouter éxito.
+- respuesta inválida, reparación inválida y proveedor siguiente.
+- claves ausentes saltan proveedor.
+- 401 deshabilita proveedor durante la ejecución.
+- todos fallan y se ejecuta local.
+- nunca se hacen llamadas paralelas.
+- nunca aparece un proveedor no incluido en el catálogo.
+
+- [ ] **Step 2: Definir resultado**
+
+```kotlin
+sealed interface RoutedPacketOutcome {
+    data class Remote(
+        val claims: List<RawClaim>,
+        val provider: InferenceProvider,
+        val modelId: String,
+    ) : RoutedPacketOutcome
+
+    data class Local(
+        val claims: List<RawClaim>,
+        val failures: List<ProviderFailure>,
+    ) : RoutedPacketOutcome
+}
+```
+
+- [ ] **Step 3: Implementar política de reintento**
+
+`QUOTA` y `AUTHENTICATION` no reintentan. `SERVER_UNAVAILABLE` y `TIMEOUT` reintentan una vez después de 2.000 ms. `INVALID_RESPONSE` permite una única solicitud correctiva que agrega el error de validación al prompt sin incluir datos nuevos.
+
+- [ ] **Step 4: Implementar router**
+
+Iterar perfiles habilitados en orden. Leer y borrar de memoria la clave alrededor de cada llamada. Validar antes de guardar caché. Detenerse en el primer éxito. Acumular fallos sin cuerpos HTTP ni secretos.
+
+- [ ] **Step 5: Implementar fallback**
+
+Encapsular las reglas existentes en `FallbackClaimExtractor`. Los claims usan `LOCAL_RULE` y, cuando completan un paquete remoto fallido dentro de una ficha mixta, quedan por confirmar.
+
+- [ ] **Step 6: Ejecutar pruebas**
+
+Run:
+
+```bash
+./gradlew testDebugUnitTest --tests '*FreeInferenceRouterTest' --tests '*ProviderRetryPolicyTest'
+```
+
+Expected: PASS.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add app/src/main/java/com/capo/diarioclase/processing/semantic app/src/test/java/com/capo/diarioclase/processing/semantic
+git commit -m "feat: route inference across free providers"
+```
+
+---
+
+### Task 8: Integración con procesamiento y configuración visible
+
+**Files:**
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/work/TranscriptionCoordinator.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/work/TranscriptionWorker.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/DiarioClaseApp.kt`
+- Modify: `app/src/main/java/com/capo/diarioclase/AndroidCaptureActions.kt`
+- Modify: `app/src/main/java/com/capo/diarioclase/ui/capture/CaptureUiState.kt`
+- Modify: `app/src/main/java/com/capo/diarioclase/ui/capture/CaptureViewModel.kt`
+- Modify: `app/src/main/java/com/capo/diarioclase/ui/capture/CaptureScreen.kt`
 - Modify: `app/src/test/java/com/capo/diarioclase/processing/work/TranscriptionCoordinatorTest.kt`
+- Modify: `app/src/test/java/com/capo/diarioclase/ui/capture/CaptureViewModelTest.kt`
 
 **Interfaces:**
-- Consumes: spans completos, configuración, credencial, cliente, caché, validador, reductor y modo.
-- Produces: `suspend fun interpret(sessionId, spans, mode, forceRefresh): HybridInterpretationOutcome`.
+- Consumes: transcript completo y configuración de proveedores.
+- Produces: ficha con origen remoto, mixto o local.
 
-- [ ] **Step 1: Escribir pruebas de recorridos**
+- [ ] **Step 1: Escribir pruebas de integración**
 
-Cubrir:
+Afirmar que el router comienza solo después de completar Whisper, cambiar de modo no llama a la red, campos editados sobreviven, reapertura usa caché y cancelación conserva datos.
 
-- Gemini configurado y respuesta válida;
-- respuesta servida desde caché sin llamada;
-- `429`, `500` y `503` con tres intentos;
-- esperas de 2.000, 5.000 y 12.000 ms mediante `RetryDelay` falso;
-- error 401 sin reintentos;
-- timeout de 90 segundos;
-- paquete inválido conservado como fallo;
-- procesamiento parcial reanudado desde paquetes cacheados;
-- fallback cuando no hay clave, consentimiento o red;
-- `forceRefresh = true` ignora caché pero no borra la entrada válida anterior hasta reemplazarla.
+- [ ] **Step 2: Integrar router**
 
-- [ ] **Step 2: Implementar fallback local**
+Reemplazar extracción directa por construcción de paquetes, routing, reducción y proyección. No modificar motor Whisper, ventanas, deduplicación ni checkpoints.
 
-Encapsular las reglas existentes en `FallbackClaimExtractor`. Debe dejar claro `ClaimOrigin.LOCAL_RULE` y no pretender resolver correcciones complejas. Mantener una ficha editable aunque Gemini no esté disponible.
+- [ ] **Step 3: Componer dependencias**
 
-- [ ] **Step 3: Implementar coordinador híbrido**
+`DiarioClaseApp` crea catálogo, stores, transporte, dos tipos de cliente, validador, caché, reductor, router y fallback.
 
-Procesar paquetes secuencialmente. Para cada paquete:
+- [ ] **Step 4: Crear configuración compacta**
 
-1. buscar caché;
-2. llamar a Gemini si falta;
-3. reintentar solo fallos recuperables;
-4. validar;
-5. guardar únicamente JSON válido;
-6. continuar con el siguiente paquete;
-7. reducir claims y proyectar el modo.
+Para cada proveedor mostrar:
 
-Si ningún paquete puede interpretarse con Gemini, usar fallback. Si algunos paquetes tienen éxito y otros fallan, conservar los válidos y colocar los resultados del fallback de los bloques faltantes en “por confirmar”.
+- activar;
+- explicación de envío de texto;
+- consentimiento;
+- campo de clave oculto;
+- guardar;
+- probar;
+- borrar;
+- modelo fijo gratuito;
+- últimos cuatro caracteres.
 
-- [ ] **Step 4: Integrar después de Whisper**
+No permitir escribir un id de modelo.
 
-Reemplazar `LiteralClaimExtractor` y `ClaimReducer` dentro de `TranscriptionCoordinator` por `HybridInterpretationCoordinator`. No cambiar transcripción, checkpoints ni deduplicación.
+- [ ] **Step 5: Probar conexión sin transcripción**
 
-- [ ] **Step 5: Ajustar timeout del worker**
+Enviar un prompt fijo mínimo y descartar la respuesta. Para OpenRouter consultar además `GET /api/v1/key` y mostrar advertencia si `is_free_tier` es falso o existe capacidad de gasto sin límite explícito.
 
-Mantener 300.000 ms por ventana Whisper y aplicar 90.000 ms por solicitud Gemini dentro del coordinador. Una cancelación debe cerrar la conexión y conservar caché y transcript confirmados.
+- [ ] **Step 6: Mostrar ejecución**
 
-- [ ] **Step 6: Componer dependencias**
-
-`DiarioClaseApp` construye stores, packet builder, prompt, transporte, cliente, validador, reductor, caché, fallback y coordinador. La credencial se lee solo inmediatamente antes de una llamada y el buffer se limpia después.
+Mostrar proveedor actual, paquete actual, fallbacks configurados y procedencia final `GEMINI`, `GROQ`, `OPENROUTER`, `MIXTO` o `LOCAL`. Ofrecer `REINTENTAR INFERENCIA` y `CONTINUAR CON FICHA LOCAL`.
 
 - [ ] **Step 7: Ejecutar pruebas**
 
 Run:
 
 ```bash
-./gradlew testDebugUnitTest --tests '*HybridInterpretationCoordinatorTest' --tests '*TranscriptionCoordinatorTest' --tests '*SemanticInterpretationContractTest'
+./gradlew testDebugUnitTest --tests '*TranscriptionCoordinatorTest' --tests '*CaptureViewModelTest' --tests '*InferenceContractTest'
 ```
 
 Expected: PASS.
@@ -584,74 +693,12 @@ Expected: PASS.
 
 ```bash
 git add app/src/main/java/com/capo/diarioclase app/src/test/java/com/capo/diarioclase
-git commit -m "feat: integrate resilient Gemini interpretation fallback"
+git commit -m "feat: expose free inference fallback chain"
 ```
 
 ---
 
-### Task 8: Ajustes, consentimiento y estado visible
-
-**Files:**
-- Modify: `app/src/main/java/com/capo/diarioclase/ui/capture/CaptureUiState.kt`
-- Modify: `app/src/main/java/com/capo/diarioclase/ui/capture/CaptureViewModel.kt`
-- Modify: `app/src/main/java/com/capo/diarioclase/ui/capture/CaptureScreen.kt`
-- Modify: `app/src/main/java/com/capo/diarioclase/AndroidCaptureActions.kt`
-- Modify: `app/src/test/java/com/capo/diarioclase/ui/capture/CaptureViewModelTest.kt`
-
-**Interfaces:**
-- Consumes: activar/desactivar Gemini, aceptar consentimiento, guardar/probar/borrar clave y reintentar.
-- Produces: estado de configuración y progreso de interpretación sin exponer secretos.
-
-- [ ] **Step 1: Escribir pruebas de UI state**
-
-Probar estados:
-
-`NO_CONFIGURADO`, `CONSENTIMIENTO_REQUERIDO`, `LISTO`, `INTERPRETANDO`, `REINTENTANDO`, `CUOTA_AGOTADA`, `SIN_CONEXION`, `RESPUESTA_INVALIDA`, `FALLBACK_LOCAL` y `COMPLETADO`.
-
-Verificar que el state solo contiene `credentialSuffix` de cuatro caracteres y nunca la clave completa.
-
-- [ ] **Step 2: Agregar panel de configuración**
-
-Incluir:
-
-- interruptor `INTERPRETACIÓN CON GEMINI`;
-- texto claro sobre envío de transcripción y uso de datos del nivel gratuito;
-- aceptación explícita;
-- campo de clave con contenido oculto;
-- `GUARDAR CLAVE`, `PROBAR CONEXIÓN` y `BORRAR CLAVE`;
-- modelo visible como información avanzada;
-- estado de la última prueba.
-
-No enviar transcripciones durante `PROBAR CONEXIÓN`; usar un prompt fijo de una palabra y descartar la respuesta.
-
-- [ ] **Step 3: Mostrar progreso y procedencia**
-
-Durante interpretación mostrar paquete actual y total. En la ficha indicar `GEMINI`, `LOCAL` o `MIXTO`. No mostrar mensajes que impliquen que una ficha local tiene precisión semántica equivalente.
-
-- [ ] **Step 4: Agregar recuperación**
-
-Mostrar `REINTENTAR GEMINI` para fallos recuperables y `USAR FICHA LOCAL` como decisión explícita. No eliminar ni retranscribir audio.
-
-- [ ] **Step 5: Ejecutar pruebas**
-
-Run:
-
-```bash
-./gradlew testDebugUnitTest --tests '*CaptureViewModelTest'
-```
-
-Expected: PASS.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add app/src/main/java/com/capo/diarioclase/ui app/src/main/java/com/capo/diarioclase/AndroidCaptureActions.kt app/src/test/java/com/capo/diarioclase/ui
-git commit -m "feat: add Gemini consent configuration and status UI"
-```
-
----
-
-### Task 9: Feedback local, validación integral y APK
+### Task 9: Feedback, validación integral y APK
 
 **Files:**
 - Modify: `app/src/main/java/com/capo/diarioclase/data/db/Entities.kt`
@@ -659,56 +706,40 @@ git commit -m "feat: add Gemini consent configuration and status UI"
 - Modify: `app/src/main/java/com/capo/diarioclase/data/db/DiarioDatabase.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/AndroidCaptureActions.kt`
 - Modify: `app/src/test/java/com/capo/diarioclase/FullJourneyTest.kt`
-- Create: `PHASE5_GEMINI_DEVICE_TEST.md`
+- Create: `PHASE5_FREE_INFERENCE_DEVICE_TEST.md`
 - Create: `PHASE5_HANDOFF.md`
 - Modify: `AGENTS.md`
 - Modify: `app/build.gradle.kts`
 
 **Interfaces:**
-- Consumes: borrador generado, edición aprobada y toda la implementación anterior.
-- Produces: feedback local, versión `0.5.0-gemini`, documentación durable, CI verde y APK de prueba.
+- Consumes: borrador generado, edición aprobada y cadena completa.
+- Produces: feedback local, versión `0.5.0-free-router`, continuidad, CI verde y APK.
 
-- [ ] **Step 1: Escribir pruebas de feedback**
+- [ ] **Step 1: Agregar feedback local**
 
-Probar que editar una ficha guarda valores generados y aprobados, procedencia y ids de claims; aprobar sin cambios no crea feedback; no se guarda audio, transcripción ni clave; y el feedback no modifica futuras interpretaciones automáticamente.
+Crear migración Room 5→6 y una entidad que guarde campos generados, campos aprobados, origen e ids de claims. No guardar audio, transcript completo ni claves. El feedback no modifica automáticamente reglas.
 
-- [ ] **Step 2: Agregar entidad y migración 5→6**
+- [ ] **Step 2: Escribir prueba física**
 
-```kotlin
-@Entity(tableName = "interpretation_feedback")
-data class InterpretationFeedbackEntity(
-    @PrimaryKey val id: String,
-    val sessionId: String,
-    val mode: String,
-    val origin: String,
-    val generatedFieldsJson: String,
-    val approvedFieldsJson: String,
-    val evidenceClaimIdsJson: String,
-    val createdAtEpochMs: Long,
-)
-```
+El protocolo debe probar:
 
-Guardar feedback en la misma transacción que el diario permanente, antes de limpiar temporales.
+1. Gemini exitoso.
+2. Gemini simulado en 429 y Groq exitoso.
+3. Gemini y Groq simulados en 429 y OpenRouter exitoso.
+4. todos simulados en fallo y fallback local.
+5. modo avión.
+6. cambio de modo sin llamadas.
+7. cierre y reapertura con caché.
+8. edición, aprobación y limpieza.
+9. clave inválida sin exposición.
 
-- [ ] **Step 3: Escribir protocolo físico**
+Los fallos simulados se habilitan solo en debug y nunca aceptan claves o cuerpos arbitrarios.
 
-Probar en Moto g max:
+- [ ] **Step 3: Actualizar versión**
 
-1. clave válida y red disponible;
-2. texto con los cinco campos y una autocorrección;
-3. cambio de modo sin nueva llamada;
-4. cierre y reapertura usando caché;
-5. clave inválida;
-6. modo avión con fallback;
-7. simulación de `429` o `503` mediante transporte de debug;
-8. edición, aprobación y limpieza;
-9. verificación de que la clave sigue disponible y el audio fue eliminado solo tras aprobar.
+Cambiar `versionCode` de 6 a 7 y `versionName` a `0.5.0-free-router`.
 
-- [ ] **Step 4: Actualizar versión**
-
-Cambiar `versionCode` de 6 a 7 y `versionName` a `0.5.0-gemini`.
-
-- [ ] **Step 5: Ejecutar verificación completa**
+- [ ] **Step 4: Ejecutar verificación completa**
 
 Run:
 
@@ -718,39 +749,38 @@ Run:
 
 Expected: exit 0.
 
-- [ ] **Step 6: Verificar APK y secretos**
+- [ ] **Step 5: Verificar APK, permisos y secretos**
 
 Run:
 
 ```bash
 unzip -l app/build/outputs/apk/debug/app-debug.apk | rg 'ggml-base.bin|lib/arm64-v8a/libdiarioclase_whisper.so'
 apkanalyzer manifest permissions app/build/outputs/apk/debug/app-debug.apk | rg 'android.permission.INTERNET|android.permission.ACCESS_NETWORK_STATE'
-rg -n --hidden --glob '!build/**' --glob '!.git/**' 'AIza|x-goog-api-key.{0,80}[A-Za-z0-9_-]{20,}' .
+rg -n --hidden --glob '!build/**' --glob '!.git/**' 'AIza|gsk_|sk-or-v1-' .
 ```
 
-Expected: modelo y biblioteca presentes; ambos permisos de red presentes; búsqueda de credenciales sin coincidencias reales.
+Expected: modelo y biblioteca presentes; dos permisos de red presentes; ninguna credencial real encontrada.
 
-- [ ] **Step 7: Actualizar continuidad**
+- [ ] **Step 6: Actualizar continuidad**
 
-`PHASE5_HANDOFF.md` registra por tarea commit, workflow, cambios, fallos, prueba física y próximo paso. `AGENTS.md` indica leer primero diseño, plan y handoff de Fase 5, conservando Fase 4 como recuperación conocida.
+`PHASE5_HANDOFF.md` registra commit y workflow por tarea, proveedor probado, fallos, prueba física y próximo paso. `AGENTS.md` exige leer diseño, plan y handoff antes de modificar Fase 5.
 
-- [ ] **Step 8: Commit y CI**
+- [ ] **Step 7: Commit y CI**
 
 ```bash
-git add app/src/main/java/com/capo/diarioclase app/src/test/java/com/capo/diarioclase app/src/androidTest/java/com/capo/diarioclase PHASE5_GEMINI_DEVICE_TEST.md PHASE5_HANDOFF.md AGENTS.md app/build.gradle.kts
-git commit -m "release: prepare Gemini interpretation APK"
+git add app/src/main/java/com/capo/diarioclase app/src/test/java/com/capo/diarioclase app/src/androidTest/java/com/capo/diarioclase PHASE5_FREE_INFERENCE_DEVICE_TEST.md PHASE5_HANDOFF.md AGENTS.md app/build.gradle.kts
+git commit -m "release: prepare free inference router APK"
 ```
 
 Esperar GitHub Actions verde antes de entregar el APK.
 
-- [ ] **Step 9: Cierre empírico**
+- [ ] **Step 8: Cierre empírico**
 
-Instalar el APK exacto de la CI y completar `PHASE5_GEMINI_DEVICE_TEST.md`. Cada fallo semántico se convierte en un escenario sintético mínimo con respuesta esperada; no se exige entregar audio ni formar un corpus.
+Instalar el APK exacto de la CI en Moto g max y completar el protocolo. Cada fallo semántico se convierte en un escenario sintético mínimo; no se exige audio ni corpus.
 
-## Decisiones posteriores
+## Límites conscientes
 
-- No agregar una segunda llamada de consolidación mientras la reducción local resuelva duplicados.
-- No enviar bloques completos nuevamente al cambiar de modo.
-- No incorporar marcadores manuales salvo que la validación física muestre una necesidad recurrente.
-- Si el modelo configurado pierde nivel gratuito o se retira, cambiar `modelId`, incrementar `promptVersion` cuando corresponda e invalidar el caché por clave compuesta.
-- Si la aplicación deja de ser privada, reemplazar credencial directa por Firebase AI Logic con App Check antes de distribuirla.
+- El router aumenta disponibilidad, no garantiza que un proveedor gratuito nunca cambie sus cuotas.
+- “Sin costo” depende de usar cuentas sin facturación y modelos del catálogo bloqueado.
+- OpenRouter puede cambiar el modelo que atiende `openrouter/free`; por eso siempre queda último y requiere validación local.
+- No se agregará un cuarto proveedor hasta que la prueba física demuestre que los tres remotos más el fallback local son insuficientes.
