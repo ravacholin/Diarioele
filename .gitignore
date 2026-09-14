@@ -2,10 +2,13 @@
 /.kotlin/
 /build/
 /app/build/
-/local.properties
+/app/.cxx/
+local.properties
 *.iml
 .idea/
 captures/
 *.jks
 *.keystore
 .worktrees/
+app/src/main/assets/models/*.bin
+!app/src/main/assets/models/.gitkeep

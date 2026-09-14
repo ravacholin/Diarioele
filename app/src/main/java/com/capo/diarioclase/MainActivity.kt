@@ -50,6 +50,7 @@ class MainActivity : ComponentActivity() {
                     app.repository, AndroidCaptureActions(app, app),
                     drafts = app.processingStore.observeLatestDraft(), claims = app.processingStore.observeLatestClaims(),
                     diaries = app.diaryRepository.observeEntries(""),
+                    observeProgress = { app.transcriptionScheduler.observeProgress(it) },
                 ) as T
                 ArchiveViewModel::class.java -> ArchiveViewModel(app.diaryRepository) as T
                 else -> error("Modelo de pantalla desconocido")
@@ -93,8 +94,8 @@ class MainActivity : ComponentActivity() {
                                     CaptureScreen(
                                         captureState, capture::onStart, capture::onPause, capture::onResume,
                                         capture::onMarkHomework, capture::onFinalize, capture::onProcess,
-                                        capture::onMode, capture::onRequestModel, capture::onSaveDraft,
-                                        capture::onApprove, capture::onRetryCleanup,
+                                        capture::onMode, capture::onPauseProcessing, capture::onResumeProcessing,
+                                        capture::onSaveDraft, capture::onApprove, capture::onRetryCleanup,
                                         interpretationMode = archiveState.mode,
                                     )
                                 }

@@ -5,6 +5,16 @@ import kotlinx.coroutines.flow.Flow
  @Insert suspend fun insertSession(x:SessionEntity); @Update suspend fun updateSession(x:SessionEntity)
  @Insert suspend fun insertBlock(x:BlockEntity); @Update suspend fun updateBlock(x:BlockEntity)
  @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun saveSegment(x:AudioSegmentEntity)
+ @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun saveTranscriptionRun(run:TranscriptionRunEntity)
+ @Query("SELECT * FROM transcription_runs WHERE sessionId=:sessionId LIMIT 1") suspend fun transcriptionRun(sessionId:String):TranscriptionRunEntity?
+ @Query("SELECT * FROM transcription_runs WHERE sessionId=:sessionId LIMIT 1") fun observeTranscriptionRun(sessionId:String):Flow<TranscriptionRunEntity?>
+ @Query("UPDATE transcription_runs SET pauseRequested=1 WHERE sessionId=:sessionId") suspend fun requestTranscriptionPause(sessionId:String):Int
+ @Query("UPDATE transcription_runs SET pauseRequested=0 WHERE sessionId=:sessionId") suspend fun clearTranscriptionPause(sessionId:String):Int
+ @Query("DELETE FROM transcription_runs WHERE sessionId=:sessionId") suspend fun deleteTranscriptionRun(sessionId:String)
+ @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun saveCheckpoint(checkpoint:TranscriptionCheckpointEntity)
+ @Query("SELECT * FROM transcription_checkpoints WHERE audioSegmentId=:audioSegmentId LIMIT 1") suspend fun checkpoint(audioSegmentId:String):TranscriptionCheckpointEntity?
+ @Query("SELECT * FROM transcription_checkpoints WHERE sessionId=:sessionId ORDER BY audioSegmentId") suspend fun checkpoints(sessionId:String):List<TranscriptionCheckpointEntity>
+ @Query("DELETE FROM transcription_checkpoints WHERE sessionId=:sessionId") suspend fun deleteCheckpoints(sessionId:String)
  @Query("SELECT * FROM audio_segments WHERE id=:id") suspend fun segment(id:String):AudioSegmentEntity?
  @Insert suspend fun insertMarker(x:MarkerEntity)
  @Query("SELECT * FROM markers WHERE blockId=:id ORDER BY offsetMs") suspend fun markers(id:String):List<MarkerEntity>
@@ -26,6 +36,7 @@ import kotlinx.coroutines.flow.Flow
  @Query("DELETE FROM transcript_spans WHERE audioSegmentId=:segmentId") suspend fun deleteTranscript(segmentId:String)
  @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun insertTranscript(spans:List<TranscriptSpanEntity>)
  @Query("SELECT transcript_spans.* FROM transcript_spans INNER JOIN audio_segments ON audio_segments.id=transcript_spans.audioSegmentId INNER JOIN blocks ON blocks.id=audio_segments.blockId WHERE blocks.sessionId=:sessionId ORDER BY blocks.ordinal,audio_segments.ordinal,transcript_spans.startMs") suspend fun transcript(sessionId:String):List<TranscriptSpanEntity>
+ @Query("SELECT * FROM transcript_spans WHERE audioSegmentId=:audioSegmentId ORDER BY startMs,endMs,id") suspend fun transcriptForSegment(audioSegmentId:String):List<TranscriptSpanEntity>
  @Query("DELETE FROM evidence_claims WHERE sessionId=:sessionId AND origin!='USER_EDIT'") suspend fun deleteMachineClaims(sessionId:String)
  @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun insertClaims(claims:List<EvidenceClaimEntity>)
  @Query("SELECT * FROM evidence_claims WHERE sessionId=:sessionId ORDER BY category,startMs") fun observeClaims(sessionId:String):Flow<List<EvidenceClaimEntity>>
@@ -44,7 +55,7 @@ import kotlinx.coroutines.flow.Flow
  @Query("DELETE FROM diary_drafts WHERE sessionId=:sessionId") suspend fun deleteDraftForSession(sessionId:String)
  @Query("SELECT audio_segments.* FROM audio_segments INNER JOIN blocks ON blocks.id=audio_segments.blockId WHERE blocks.sessionId=:sessionId AND audio_segments.state!='DELETED' ORDER BY blocks.ordinal,audio_segments.ordinal") suspend fun segmentsForCleanup(sessionId:String):List<AudioSegmentEntity>
  @Query("UPDATE audio_segments SET state='DELETED' WHERE id IN (:ids)") suspend fun markSegmentsDeleted(ids:List<String>)
- @Query("SELECT (SELECT COUNT(*) FROM audio_segments INNER JOIN blocks ON blocks.id=audio_segments.blockId WHERE blocks.sessionId=:sessionId AND audio_segments.state!='DELETED') + (SELECT COUNT(*) FROM transcript_spans INNER JOIN audio_segments ON audio_segments.id=transcript_spans.audioSegmentId INNER JOIN blocks ON blocks.id=audio_segments.blockId WHERE blocks.sessionId=:sessionId) + (SELECT COUNT(*) FROM evidence_claims WHERE sessionId=:sessionId) + (SELECT COUNT(*) FROM diary_drafts WHERE sessionId=:sessionId)") suspend fun temporaryRowCount(sessionId:String):Int
+ @Query("SELECT (SELECT COUNT(*) FROM audio_segments INNER JOIN blocks ON blocks.id=audio_segments.blockId WHERE blocks.sessionId=:sessionId AND audio_segments.state!='DELETED') + (SELECT COUNT(*) FROM transcript_spans INNER JOIN audio_segments ON audio_segments.id=transcript_spans.audioSegmentId INNER JOIN blocks ON blocks.id=audio_segments.blockId WHERE blocks.sessionId=:sessionId) + (SELECT COUNT(*) FROM evidence_claims WHERE sessionId=:sessionId) + (SELECT COUNT(*) FROM diary_drafts WHERE sessionId=:sessionId) + (SELECT COUNT(*) FROM transcription_checkpoints WHERE sessionId=:sessionId) + (SELECT COUNT(*) FROM transcription_runs WHERE sessionId=:sessionId)") suspend fun temporaryRowCount(sessionId:String):Int
  @Query("UPDATE sessions SET state=:state,updatedAtEpochMs=:nowEpochMs WHERE id=:sessionId") suspend fun updateSessionStateUnchecked(sessionId:String,state:String,nowEpochMs:Long)
  @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun saveSetting(setting:AppSettingEntity)
  @Query("SELECT COALESCE((SELECT value FROM app_settings WHERE key='interpretation_mode' LIMIT 1),'CONSERVATIVE')") fun observeInterpretationMode():Flow<String>

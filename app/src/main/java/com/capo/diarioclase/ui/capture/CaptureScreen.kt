@@ -19,14 +19,11 @@ import androidx.compose.ui.unit.sp
 import com.capo.diarioclase.data.db.*
 import com.capo.diarioclase.diary.DiaryClipboardFormatter
 import com.capo.diarioclase.processing.evidence.*
-import com.capo.diarioclase.processing.transcription.SpanishModelDownloadState
-import com.capo.diarioclase.processing.transcription.TranscriptionFailure
-import com.capo.diarioclase.processing.transcription.modelAllowsProcessing
 
 @Composable
-fun CaptureScreen(state:CaptureUiState,onStart:()->Unit,onPause:()->Unit,onResume:()->Unit,onMark:()->Unit,onFinalize:()->Unit,onProcess:(InterpretationMode)->Unit,onMode:(InterpretationMode,String,String,String,String,String)->Unit,onRequestModel:()->Unit,onSave:(String,String,String,String,String)->Unit,onApprove:(String,String,String,String,String)->Unit,onRetryCleanup:()->Unit,interpretationMode:InterpretationMode=InterpretationMode.CONSERVATIVE){
+fun CaptureScreen(state:CaptureUiState,onStart:()->Unit,onPause:()->Unit,onResume:()->Unit,onMark:()->Unit,onFinalize:()->Unit,onProcess:(InterpretationMode)->Unit,onMode:(InterpretationMode,String,String,String,String,String)->Unit,onPauseProcessing:()->Unit,onResumeProcessing:(InterpretationMode)->Unit,onSave:(String,String,String,String,String)->Unit,onApprove:(String,String,String,String,String)->Unit,onRetryCleanup:()->Unit,interpretationMode:InterpretationMode=InterpretationMode.CONSERVATIVE){
  MaterialTheme(colorScheme=darkColorScheme(primary=Color.White,onPrimary=Color.Black,secondary=Color.LightGray,onSecondary=Color.Black,onSurfaceVariant=Color.LightGray,surfaceVariant=Color.DarkGray,error=Color.White,onError=Color.Black,background=Color.Black,surface=Color.Black,onBackground=Color.White,onSurface=Color.White,outline=Color.Gray)){
-  when(state.status){CaptureStatus.REVIEW,CaptureStatus.PROCESSING->state.lastRecording?.let{RecordingReportScreen(state,it,onStart,onProcess,onRequestModel,interpretationMode)};CaptureStatus.DRAFT->DraftScreen(state,onMode,onSave,onApprove);CaptureStatus.APPROVING->ApprovalProgressScreen(state);CaptureStatus.CLEANUP_PENDING,CaptureStatus.ARCHIVED->PermanentDiaryScreen(state,onRetryCleanup,onStart);else->CaptureControls(state,onStart,onPause,onResume,onMark,onFinalize)}
+  when(state.status){CaptureStatus.REVIEW,CaptureStatus.PROCESSING->state.lastRecording?.let{RecordingReportScreen(state,it,onStart,onProcess,onPauseProcessing,onResumeProcessing,interpretationMode)};CaptureStatus.DRAFT->DraftScreen(state,onMode,onSave,onApprove);CaptureStatus.APPROVING->ApprovalProgressScreen(state);CaptureStatus.CLEANUP_PENDING,CaptureStatus.ARCHIVED->PermanentDiaryScreen(state,onRetryCleanup,onStart);else->CaptureControls(state,onStart,onPause,onResume,onMark,onFinalize)}
  }
 }
 
@@ -39,7 +36,7 @@ fun CaptureScreen(state:CaptureUiState,onStart:()->Unit,onPause:()->Unit,onResum
  if(confirmFinalize)AlertDialog(onDismissRequest={confirmFinalize=false},shape=RectangleShape,containerColor=Color.Black,title={Text("FINALIZAR DÍA")},text={Text("Se cerrará la grabación. Después podrás escucharla y procesarla.")},confirmButton={TextButton(onClick={confirmFinalize=false;onFinalize()}){Text("FINALIZAR")}},dismissButton={TextButton(onClick={confirmFinalize=false}){Text("CANCELAR")}})
 }
 
-@Composable private fun RecordingReportScreen(state:CaptureUiState,report:RecordingReport,onStart:()->Unit,onProcess:(InterpretationMode)->Unit,onRequestModel:()->Unit,interpretationMode:InterpretationMode){
+@Composable private fun RecordingReportScreen(state:CaptureUiState,report:RecordingReport,onStart:()->Unit,onProcess:(InterpretationMode)->Unit,onPauseProcessing:()->Unit,onResumeProcessing:(InterpretationMode)->Unit,interpretationMode:InterpretationMode){
  var player by remember(report.sessionId){mutableStateOf<MediaPlayer?>(null)};var playingId by remember(report.sessionId){mutableStateOf<SegmentId?>(null)};var playbackError by remember(report.sessionId){mutableStateOf<String?>(null)}
  DisposableEffect(report.sessionId){onDispose{player?.release()}}
  fun stop(){player?.release();player=null;playingId=null}
@@ -48,7 +45,17 @@ fun CaptureScreen(state:CaptureUiState,onStart:()->Unit,onPause:()->Unit,onResum
   item{Spacer(Modifier.height(24.dp));AppLabel();Spacer(Modifier.height(36.dp));Text(if(state.status==CaptureStatus.PROCESSING)"PROCESANDO" else "DÍA FINALIZADO",fontSize=38.sp,fontWeight=FontWeight.Black);Text(report.pedagogicalDate,color=Color.LightGray)}
   item{VerificationBox(report);playbackError?.let{Text(it,modifier=Modifier.padding(top=12.dp))}}
   items(report.blocks,key={it.id.value}){block->BlockReport(block,playingId,::toggle)}
-  item{HorizontalDivider(color=Color.DarkGray);Text("TRANSCRIPCIÓN LOCAL",fontSize=12.sp,fontWeight=FontWeight.Bold,letterSpacing=2.sp);Spacer(Modifier.height(8.dp));Text(if(state.status==CaptureStatus.PROCESSING)"EN CURSO" else "LISTA PARA INICIAR",fontSize=24.sp,fontWeight=FontWeight.Black);Text(state.message.orEmpty(),color=Color.LightGray);Spacer(Modifier.height(14.dp));if(state.status==CaptureStatus.PROCESSING)LinearProgressIndicator(Modifier.fillMaxWidth(),color=Color.White,trackColor=Color.DarkGray)else{val languageFailure=report.segments.any{it.lastTranscriptionFailure==TranscriptionFailure.LANGUAGE_UNAVAILABLE.name};val canProcess=report.allAudioReady&&!state.busy&&modelAllowsProcessing(languageFailure,state.modelDownload);MonoButton(if(report.segments.any{it.state==SegmentState.FAILED})"REINTENTAR" else "PROCESAR AUDIO",canProcess,{onProcess(interpretationMode)});Spacer(Modifier.height(8.dp));if(state.modelDownload is SpanishModelDownloadState.Downloading)LinearProgressIndicator(Modifier.fillMaxWidth(),color=Color.White,trackColor=Color.DarkGray);TextButton(onClick=onRequestModel,enabled=!state.busy){Text(if(state.modelDownload is SpanishModelDownloadState.Scheduled)"VERIFICAR DESCARGA" else "COMPROBAR ESPAÑOL LOCAL")}}}
+  item{HorizontalDivider(color=Color.DarkGray);Text("WHISPER LOCAL · ESPAÑOL",fontSize=12.sp,fontWeight=FontWeight.Bold,letterSpacing=2.sp);Text("MODELO INTEGRADO",color=Color.LightGray,fontSize=11.sp,letterSpacing=1.sp);Spacer(Modifier.height(10.dp))
+   val preparing=state.progressLabel=="PREPARANDO MODELO";val hasFailure=state.processingFailure!=null||report.segments.any{it.state==SegmentState.FAILED}
+   val heading=when{state.status==CaptureStatus.PROCESSING&&state.transcriptionPaused->"EN PAUSA";state.status==CaptureStatus.PROCESSING&&preparing->"PREPARANDO MODELO";state.status==CaptureStatus.PROCESSING->"EN CURSO";hasFailure->"TRANSCRIPCIÓN INTERRUMPIDA";else->"LISTA PARA INICIAR"}
+   Text(heading,fontSize=24.sp,fontWeight=FontWeight.Black);Text(state.message.orEmpty(),color=Color.LightGray);Spacer(Modifier.height(14.dp))
+   if(state.status==CaptureStatus.PROCESSING){
+    if(preparing)LinearProgressIndicator(Modifier.fillMaxWidth(),color=Color.White,trackColor=Color.DarkGray)
+    else{LinearProgressIndicator(progress={state.progressPercent/100f},modifier=Modifier.fillMaxWidth(),color=Color.White,trackColor=Color.DarkGray);Spacer(Modifier.height(8.dp));Text("${state.progressPercent}% confirmado",color=Color.LightGray,fontSize=12.sp);Text("${formatDuration(state.processedMs)} / ${formatDuration(state.processingTotalMs)}",color=Color.LightGray,fontSize=12.sp)}
+    Spacer(Modifier.height(12.dp))
+    if(state.transcriptionPaused)MonoButton("RETOMAR",!state.busy,{onResumeProcessing(interpretationMode)})
+    else if(!preparing)MonoButton("PAUSAR PROCESAMIENTO",!state.busy,onPauseProcessing,false)
+   }else MonoButton(if(hasFailure)"REINTENTAR" else "PROCESAR AUDIO",report.allAudioReady&&!state.busy,{if(hasFailure)onResumeProcessing(interpretationMode) else onProcess(interpretationMode)})}
   item{Text("El audio se conserva durante toda esta fase. Un fallo de transcripción no lo elimina.",color=Color.LightGray,fontSize=12.sp);Spacer(Modifier.height(8.dp));MonoButton("COMENZAR OTRO DÍA",state.status!=CaptureStatus.PROCESSING,onStart,false);Spacer(Modifier.height(24.dp))}
  }
 }

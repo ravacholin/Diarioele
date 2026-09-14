@@ -50,8 +50,14 @@ class DiarioMigrationTest {
             helper.close()
         }
         val database = Room.databaseBuilder(context, DiarioDatabase::class.java, name)
-            .addMigrations(DiarioDatabase.MIGRATION_2_3).allowMainThreadQueries().build()
+            .addMigrations(
+                DiarioDatabase.MIGRATION_2_3,
+                DiarioDatabase.MIGRATION_3_4,
+            ).allowMainThreadQueries().build()
         try {
+            assertEquals(4, database.openHelper.writableDatabase.version)
+            assertEquals(0, queryCount(database.openHelper.writableDatabase, "transcription_runs"))
+            assertEquals(0, queryCount(database.openHelper.writableDatabase, "transcription_checkpoints"))
             val legacy = database.sessions().draft("legacy")!! // Opening invokes Room's full schema validation.
             assertTrue(legacy.userEdited)
             val store = RoomProcessingStore(database, Clock { 2 })
@@ -66,4 +72,9 @@ class DiarioMigrationTest {
             context.deleteDatabase(name)
         }
     }
+    private fun queryCount(database: SupportSQLiteDatabase, table: String): Int =
+        database.query("SELECT COUNT(*) FROM $table").use { cursor ->
+            cursor.moveToFirst()
+            cursor.getInt(0)
+        }
 }

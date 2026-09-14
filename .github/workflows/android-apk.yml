@@ -2,13 +2,24 @@ name: Compilar APK Android
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Tag para publicar un Release con el APK (ej: v0.4.0-whisper). Vacío = solo compilar."
+        required: false
+        default: ""
   push:
     branches:
       - android-phase3
       - main
+      - feature/phase4-whisper-recovery
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -30,6 +41,9 @@ jobs:
 
       - name: Habilitar Gradle Wrapper
         run: chmod +x gradlew
+
+      - name: Preparar modelo Whisper verificado
+        run: bash scripts/prepare-whisper-model.sh
 
       - name: Ejecutar pruebas
         id: tests
@@ -56,3 +70,16 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publicar Release con APK
+        if: ${{ startsWith(github.ref, 'refs/tags/') || github.event.inputs.release_tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
+        run: >-
+          gh release create "$TAG"
+          "app/build/outputs/apk/debug/app-debug.apk#DiarioClase-$TAG-debug.apk"
+          --target "${{ github.sha }}"
+          --title "Diario de Clase $TAG"
+          --notes "APK debug offline con Whisper local (Fase 4). Transcripcion 100% en el dispositivo, en espanol, sin permiso de Internet. Para probar: desactiva Wi-Fi y datos moviles y segui PHASE4_WHISPER_DEVICE_TEST.md. Build validado por GitHub Actions; falta la prueba fisica en el Moto g max."
+          --prerelease
