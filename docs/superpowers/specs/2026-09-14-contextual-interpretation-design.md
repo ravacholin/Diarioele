@@ -19,6 +19,24 @@ Se implementará un router pequeño, predecible y limitado a tres proveedores:
 
 No se incorporan Cloudflare Workers AI, Mistral ni otro modelo Android en esta fase. Cloudflare exige otro esquema de cuenta y autenticación; Mistral duplicaría la función de Groq; un segundo modelo local aumentaría mucho el tamaño y la complejidad del APK.
 
+
+## Decisiones vinculantes después de la revisión independiente
+
+Estas decisiones corrigen ambigüedades del diseño original y prevalecen sobre cualquier frase incompatible del resto del documento:
+
+- La promesa es **“sin escalado automático a rutas pagas”**, no una garantía absoluta sobre la facturación externa. DiarioELE fija modelos/rutas gratuitas y nunca elige una alternativa paga, pero Gemini y Groq no exponen una verificación concluyente de que una cuenta externa carece de billing. El usuario debe usar proyectos dedicados sin facturación.
+- OpenRouter queda bloqueado si `GET /api/v1/key` informa capacidad de gasto no limitada. Cada request usa `openrouter/free`, precio máximo cero cuando la API lo admita y `provider.data_collection = "deny"`. Si esas restricciones dejan sin proveedor compatible, se continúa con el fallback local.
+- La inferencia remota está desactivada por defecto. El consentimiento advierte que el texto puede contener intervenciones de terceros o menores y que el usuario debe contar con autorización apropiada. El modo exclusivamente local siempre está disponible.
+- El contrato incluye `claim_key` estable, `evidence_span_ids` múltiples y `supersedes_claim_keys`. El validador rechaza claves inexistentes, duplicadas, cíclicas, autorreferentes o fuera del alcance permitido. El modelo local conserva una lista de `EvidenceRef`; no colapsa la evidencia a un solo span.
+- La proyección aplica estado antes que confianza: `PERFORMED` alimenta campos de clase, `ASSIGNED` alimenta Tarea, `UNCERTAIN` siempre requiere confirmación y `PROPOSED`, `CANCELLED` y `CORRECTED` quedan como historial inactivo salvo una regla explícita.
+- El orden de spans conserva bloque, ordinal de segmento y orden de entrada. `startMs` relativo nunca se usa por sí solo para reordenar segmentos.
+- Existe un máximo total de dos requests por proveedor y paquete, cualquiera sea la combinación de retry y corrección. `NO_NETWORK` pasa directamente a local; `401`, `403`, `402` y `429` abren circuito para ese proveedor durante el resto de la ejecución.
+- Cada paquete tiene un presupuesto temporal total y cancelación cooperativa. La interpretación guarda checkpoint por paquete y es reanudable; una falla remota nunca convierte en fallida una transcripción Whisper ya completa.
+- El transporte solo acepta HTTPS y hosts del catálogo, no reenvía credenciales en redirects, limita request/response en bytes y tokens, y trata respuestas excesivas como inválidas.
+- El caché está acotado por sesión, incluye versión del validador y se revalida al leer.
+- La protección de edición es por campo, no una bandera global.
+- La validación física final usa una build release no depurable. Los fallos simulados existen únicamente en debug y se verifica que no estén en release.
+
 ## Garantía de costo
 
 La aplicación solo admite configuraciones gratuitas predefinidas:
@@ -170,6 +188,7 @@ Todos los adaptadores deben obtener este objeto, aunque cada API lo envuelva de 
 {
   "claims": [
     {
+      "claim_key": "B2-C1",
       "category": "EXERCISE",
       "value": "3 (p. 42)",
       "normalized_value": "3 (p. 42)",
@@ -246,9 +265,10 @@ La suite usa transcripciones sintéticas, clientes falsos y respuestas JSON prep
 - Gemini y Groq caídos seguido de OpenRouter exitoso;
 - los tres fallan seguido de fallback local;
 - credencial ausente o inválida;
-- JSON incorrecto;
+- JSON incorrecto, truncado, duplicado, excesivo o bloqueado por safety;
+- prompt injection dentro del texto transcripto;
 - evidencia inexistente;
-- caché;
+- caché por sesión, revalidación y recuperación tras muerte de proceso;
 - cambio de modo;
 - reapertura;
 - campos editados;
@@ -278,7 +298,7 @@ No forman parte de esta fase:
 - Gemini es principal; Groq y OpenRouter funcionan como fallbacks reales.
 - Solo se consultan proveedores configurados y consentidos.
 - Una respuesta válida detiene la cadena.
-- Agotar cuotas nunca inicia una operación paga.
+- La app nunca cambia automáticamente a una ruta o modelo pago; la facturación externa sigue bajo control del usuario.
 - Todos los claims visibles tienen evidencia válida.
 - Cambiar de modo no llama a ningún proveedor.
 - Reabrir reutiliza caché.
