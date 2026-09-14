@@ -12,8 +12,8 @@ Incorporar transcripción local, privada y gratuita en español rioplatense. El 
 - Rama de trabajo: `feature/phase4-whisper-recovery`
 - PR borrador: [#1](https://github.com/ravacholin/Diarioele/pull/1)
 - Base inicial: `main@35c45a1`
-- Último checkpoint funcional validado: `3e6291e`
-- Última validación completa: GitHub Actions `#33`, exitosa
+- Último checkpoint funcional validado: `5b24221`
+- Última validación completa: GitHub Actions `#37`, exitosa
 
 No debe quedar trabajo terminado únicamente en un entorno temporal. Cada bloque funcional se confirma en esta rama y se valida con GitHub Actions antes de continuar.
 
@@ -24,11 +24,21 @@ No debe quedar trabajo terminado únicamente en un entorno temporal. Cada bloque
 | Infraestructura durable y CI de la rama | Recuperado | PR #1, workflow #31 |
 | Modelo español local | Recuperado y validado | `ec499a2`, workflow #29 |
 | Ventanas WAV y deduplicación temporal | Recuperado y validado | `3e6291e`, workflow #33 |
+| Checkpoints Room y migración 3→4 | Recuperado y validado | `5b24221`, workflow #37 |
 | Motor nativo whisper.cpp | Pendiente de reconstrucción | |
-| Checkpoints persistentes y reanudación | Pendiente de reconstrucción | |
+| Coordinador reanudable por ventana | Pendiente de reconstrucción | |
 | Extracción conservadora de la ficha | Pendiente de reconstrucción | |
 | Pantallas de progreso, error y revisión | Pendiente de reconstrucción | |
 | Integración completa y prueba en teléfono | Pendiente | |
+
+## Garantías ya implementadas
+
+- Una pausa solicitada queda persistida.
+- Cada archivo mantiene su último milisegundo confirmado y su cantidad de ventanas procesadas.
+- Repetir el guardado de un checkpoint lo avanza sin duplicarlo.
+- Eliminar un audio elimina su checkpoint huérfano por cascada.
+- Migrar una instalación existente conserva sesiones y borradores previos.
+- Los fallos y cierres no borran audio ni resultados confirmados.
 
 ## Reglas de continuidad
 
