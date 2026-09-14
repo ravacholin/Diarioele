@@ -54,10 +54,10 @@ Antes de trabajar, comprobar que estos datos no hayan sido superados por un chec
 
 ## Próxima tarea
 
-Primero confirmar el baseline verde de Task 0 en `PHASE5_HANDOFF.md`. Después ejecutar únicamente Task 1, “Contrato común y escenarios sintéticos”, en la rama:
+Task 0 quedó integrada y verde en PR #4 / run #96. Ejecutar únicamente Task 1, “Contrato común y escenarios sintéticos”, en la rama:
 
 ```text
 feature/phase5-task-01-contracts
 ```
 
-No comenzar Task 1 si Task 0 continúa en validación. No comenzar las tareas paralelas hasta integrar y validar el contrato compartido. Las instrucciones exactas y el estado se encuentran en `PHASE5_HANDOFF.md`.
+Task 1 está habilitada. No comenzar las tareas paralelas hasta integrar y validar el contrato compartido. Las instrucciones exactas y el estado se encuentran en `PHASE5_HANDOFF.md`.
