@@ -7,6 +7,9 @@ on:
       - android-phase3
       - main
       - feature/phase4-whisper-recovery
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
