@@ -12,11 +12,15 @@ on:
       - android-phase3
       - main
       - feature/phase4-whisper-recovery
+      - feature/phase5-contextual-interpretation
+      - "feature/phase5-task-*"
     tags:
       - "v*"
   pull_request:
     branches:
       - main
+      - feature/phase5/contextual-interpretation
+      - feature/phase5-contextual-interpretation
 
 permissions:
   contents: write
@@ -81,5 +85,5 @@ jobs:
           "app/build/outputs/apk/debug/app-debug.apk#DiarioClase-$TAG-debug.apk"
           --target "${{ github.sha }}"
           --title "Diario de Clase $TAG"
-          --notes "APK debug offline con Whisper local (Fase 4). Transcripcion 100% en el dispositivo, en espanol, sin permiso de Internet. Para probar: desactiva Wi-Fi y datos moviles y segui PHASE4_WHISPER_DEVICE_TEST.md. Build validado por GitHub Actions; falta la prueba fisica en el Moto g max."
+          --notes "APK debug de DiarioELE generado por GitHub Actions. Consultar el protocolo de prueba y el handoff de la fase correspondiente antes de instalarlo en el Moto g max."
           --prerelease
