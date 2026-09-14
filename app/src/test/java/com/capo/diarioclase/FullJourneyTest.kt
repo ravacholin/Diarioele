@@ -10,10 +10,13 @@ import com.capo.diarioclase.data.db.BlockEntity
 import com.capo.diarioclase.data.db.CerLevel
 import com.capo.diarioclase.data.db.DiarioDatabase
 import com.capo.diarioclase.data.db.DiaryDraftEntity
+import com.capo.diarioclase.data.db.SegmentId
 import com.capo.diarioclase.data.db.SegmentState
 import com.capo.diarioclase.data.db.SessionEntity
 import com.capo.diarioclase.data.db.SessionId
 import com.capo.diarioclase.data.db.SessionState
+import com.capo.diarioclase.data.db.TranscriptionCheckpointEntity
+import com.capo.diarioclase.data.db.TranscriptionRunEntity
 import com.capo.diarioclase.data.repository.IdProvider
 import com.capo.diarioclase.data.repository.RoomDiaryRepository
 import com.capo.diarioclase.data.repository.RoomSessionRepository
@@ -24,6 +27,8 @@ import com.capo.diarioclase.diary.cleanup.CleanupCoordinator
 import com.capo.diarioclase.diary.cleanup.CleanupOutcome
 import com.capo.diarioclase.diary.cleanup.RoomTemporaryCleanupStore
 import com.capo.diarioclase.processing.evidence.InterpretationMode
+import com.capo.diarioclase.recording.audio.CleanupFileStore
+import com.capo.diarioclase.recording.audio.DeleteResult
 import com.capo.diarioclase.recording.audio.FileSegmentStore
 import com.capo.diarioclase.ui.capture.CaptureActions
 import com.capo.diarioclase.ui.capture.CaptureStatus
@@ -37,6 +42,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -84,6 +90,9 @@ class FullJourneyTest {
         database.sessions().saveSegment(AudioSegmentEntity(readyAudio.id.value, blockId, 0, readyAudio.path, File(readyAudio.path).length(), readyAudio.durationMs, readyAudio.sha256, SegmentState.READY.name))
         val draft = DiaryDraftEntity("draft", sessionId.value, InterpretationMode.CONSERVATIVE.name, "Pasado", "Lectura", "12", "3", "Escribir", 1)
         database.sessions().saveDraft(draft)
+        database.sessions().saveTranscriptionRun(TranscriptionRunEntity(sessionId.value, "COMPLETED", false, readyAudio.durationMs, readyAudio.durationMs, null, null, 1))
+        database.sessions().saveCheckpoint(TranscriptionCheckpointEntity(readyAudio.id.value, sessionId.value, readyAudio.durationMs, readyAudio.durationMs, 1, 1, "COMPLETED", null, 1))
+        assertNotNull(database.sessions().transcriptionRun(sessionId.value))
 
         val outcome = cleanup.approveAndClean(sessionId, draft)
 
@@ -95,6 +104,8 @@ class FullJourneyTest {
         )
         assertFalse(File(readyAudio.path).exists())
         assertFalse(files.exists(readyAudio.id))
+        assertNull(database.sessions().transcriptionRun(sessionId.value))
+        assertTrue(database.sessions().checkpoints(sessionId.value).isEmpty())
         assertEquals(0, database.sessions().temporaryRowCount(sessionId.value))
 
         archive.update(archived.copy(topics = "Pasados y narración"))
@@ -104,6 +115,35 @@ class FullJourneyTest {
         val copied = DiaryClipboardFormatter().format(edited)
         assertTrue(copied.contains("Pasados y narración"))
         assertFalse(copied.contains("temporariesDeleted", ignoreCase = true))
+    }
+
+    @Test fun `cleanup failure preserves whisper run and checkpoints`() = runTest {
+        val sessionId = SessionId("whisper-session")
+        val blockId = "whisper-block"
+        database.sessions().insertSession(SessionEntity(sessionId.value, "2026-09-13", CerLevel.B1.name, SessionState.AWAITING_REVIEW.name, 1, 1))
+        database.sessions().insertBlock(BlockEntity(blockId, sessionId.value, 0, 1, 2, BlockCloseReason.FINALIZED.name))
+        val openAudio = files.open(com.capo.diarioclase.data.db.BlockId(blockId), 0)
+        files.append(openAudio, shortArrayOf(1, -1, 2, -2), 4)
+        val readyAudio = files.close(openAudio)
+        database.sessions().saveSegment(AudioSegmentEntity(readyAudio.id.value, blockId, 0, readyAudio.path, File(readyAudio.path).length(), readyAudio.durationMs, readyAudio.sha256, SegmentState.READY.name))
+        val draft = DiaryDraftEntity("whisper-draft", sessionId.value, InterpretationMode.CONSERVATIVE.name, "Pasado", "Lectura", "12", "3", "Escribir", 1)
+        database.sessions().saveDraft(draft)
+        database.sessions().saveTranscriptionRun(TranscriptionRunEntity(sessionId.value, "COMPLETED", false, readyAudio.durationMs, readyAudio.durationMs, null, null, 1))
+        database.sessions().saveCheckpoint(TranscriptionCheckpointEntity(readyAudio.id.value, sessionId.value, readyAudio.durationMs, readyAudio.durationMs, 1, 1, "COMPLETED", null, 1))
+
+        val failingFiles = object : CleanupFileStore {
+            override suspend fun delete(segmentId: SegmentId) = DeleteResult.Failed("bloqueado")
+            override suspend fun exists(segmentId: SegmentId) = true
+        }
+        val guardedCleanup = CleanupCoordinator(archive, failingFiles, RoomTemporaryCleanupStore(database.sessions()), Clock { 1_000 })
+
+        val outcome = guardedCleanup.approveAndClean(sessionId, draft)
+
+        assertTrue(outcome is CleanupOutcome.Pending)
+        assertNotNull(database.sessions().transcriptionRun(sessionId.value))
+        assertEquals(1, database.sessions().checkpoints(sessionId.value).size)
+        assertTrue(File(readyAudio.path).exists())
+        assertTrue(database.sessions().temporaryRowCount(sessionId.value) > 0)
     }
 
     @Test fun `file backed reopen surfaces pending cleanup without deleting temporaries`() = verifyCleanupRecovery(SessionState.CLEANUP_PENDING)
