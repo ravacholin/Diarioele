@@ -18,7 +18,8 @@ La Fase 4 permanece completa, validada por CI y probada con éxito en el Moto g 
 - Plan: `docs/superpowers/plans/2026-09-14-contextual-interpretation.md`
 - Coordinación multiagente: `PHASE5_AGENT_COLLABORATION.md`
 - PR central borrador: `#3`
-- Último head revisado antes de este checkpoint: `7a9393514e2ca572df5345235ebaf6b04406dde2`
+- Baseline integrado: `cc45637818c8693056590a186d4aa2dca0b7dc20`
+- GitHub Actions baseline: run `#96` (`34900046641`), SUCCESS
 
 Antes de modificar código, comprobar en GitHub si existe un checkpoint más reciente en este documento.
 
@@ -48,8 +49,8 @@ La garantía de costo requiere claves de cuentas o proyectos sin facturación. L
 
 | Tarea | Estado | Dependencias | Evidencia |
 |---|---|---|---|
-| 0. Readiness colaborativo | EN VALIDACIÓN | ninguna | CI habilitada; falta baseline verde |
-| 1. Contratos y escenarios | BLOQUEADA | Task 0 verde | sin PR |
+| 0. Readiness colaborativo | COMPLETA | ninguna | PR #4, run #96 verde, `cc456378` |
+| 1. Contratos y escenarios | PENDIENTE | Task 0 completa | habilitada; sin PR |
 | 2. Catálogo y credenciales | BLOQUEADA | Task 1 | sin PR |
 | 3. Paquetes contextuales | BLOQUEADA | Task 1 | sin PR |
 | 4. Prompt y clientes HTTP | BLOQUEADA | Task 1 | sin PR |
@@ -61,7 +62,7 @@ La garantía de costo requiere claves de cuentas o proyectos sin facturación. L
 
 ## Siguiente acción exacta
 
-Primero confirmar que GitHub Actions esté verde para el último head de la rama de integración. Después ejecutar solamente Task 1 del plan en:
+Ejecutar solamente Task 1 del plan en:
 
 ```text
 feature/phase5-task-01-contracts
@@ -80,7 +81,7 @@ Secuencia:
 9. integrar solo después de CI verde;
 10. actualizar este handoff.
 
-No iniciar Task 1 sin baseline verde. No iniciar Tasks 2, 3, 4 o 6 antes de congelar el contrato de Task 1.
+Task 1 está habilitada. No iniciar Tasks 2, 3, 4 o 6 antes de congelar el contrato de Task 1.
 
 ## Restricciones de implementación
 
@@ -155,6 +156,7 @@ No marcar una tarea como completa basándose solamente en el reporte de un agent
 - `c4085ce10fbdc66d6bd2fc0b84d680ebfc23b695`: triggers de CI de Fase 5 corregidos.
 - `2143eca43c25d94aff89615e9ed5495b7919363b`: bloqueos técnicos de revisión resueltos en el plan.
 - `7a9393514e2ca572df5345235ebaf6b04406dde2`: readiness y propiedad de archivos actualizados.
+- `cc45637818c8693056590a186d4aa2dca0b7dc20`: PR #4 integrado después de GitHub Actions run #96 verde.
 
 ## Condición de cierre
 
