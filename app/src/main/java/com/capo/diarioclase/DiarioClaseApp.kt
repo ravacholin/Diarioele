@@ -14,7 +14,6 @@ import com.capo.diarioclase.diary.cleanup.RoomTemporaryCleanupStore
 import com.capo.diarioclase.processing.evidence.ClaimReducer
 import com.capo.diarioclase.processing.evidence.InterpretationProjector
 import com.capo.diarioclase.processing.evidence.LiteralClaimExtractor
-import com.capo.diarioclase.processing.transcription.AndroidOnDeviceTranscriptionEngine
 import com.capo.diarioclase.processing.transcription.WhisperModelInstaller
 import com.capo.diarioclase.processing.transcription.WhisperNativeBridge
 import com.capo.diarioclase.processing.transcription.WhisperTranscriptionEngine
@@ -46,7 +45,6 @@ class DiarioClaseApp : Application() {
             work = WorkManagerEnqueuer(WorkManager.getInstance(this)),
         )
     }
-    lateinit var transcriptionEngine: AndroidOnDeviceTranscriptionEngine
     lateinit var whisperEngine: WhisperTranscriptionEngine
     lateinit var cleanupFiles: CleanupFileStore
     lateinit var cleanupCoordinator: CleanupCoordinator
@@ -82,7 +80,6 @@ class DiarioClaseApp : Application() {
             RoomMarkerStore(database.sessions()),
         )
         processingStore = RoomProcessingStore(database, SystemClock)
-        transcriptionEngine = AndroidOnDeviceTranscriptionEngine(this)
         whisperEngine = WhisperTranscriptionEngine(
             modelProvider = WhisperModelInstaller(this),
             nativeRuntime = WhisperNativeBridge(),
