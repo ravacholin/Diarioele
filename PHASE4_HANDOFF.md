@@ -184,6 +184,39 @@ cierre/reapertura → bloque largo). Reglas: desactivar red, no aprobar durante 
 prueba de fallo (aprobar borra los temporales), y conservar el audio y registrar
 estado, progreso y error si algo falla. Ninguna CI verde reemplaza esta prueba.
 
+## Cómo obtener el APK
+
+El workflow `.github/workflows/android-apk.yml` publica el APK de dos formas:
+
+1. **GitHub Release (recomendado para el teléfono).** Al pushear un tag `v*`, el
+   workflow compila y crea un Release (marcado *prerelease*) con
+   `app-debug.apk` adjunto como `DiarioClase-<tag>-debug.apk`. Descarga directa
+   desde `https://github.com/ravacholin/Diarioele/releases`, sin zip ni vencimiento.
+   Primer release publicado con el tag **`v0.4.0-whisper`** (código `a53b321`).
+   Para publicar una versión nueva: subir el código, crear y pushear un tag nuevo
+   (`git tag v0.4.1-whisper && git push origin v0.4.1-whisper`).
+2. **Artefacto de Actions.** Cada compilación verde deja el artefacto
+   `DiarioClase-Android-debug` (un `.zip` con `app-debug.apk`), con retención de
+   14 días.
+
+Instalación: es un APK **debug** (`0.4.0-whisper`, versionCode 6). Habilitar
+"instalar apps desconocidas"; si hay una versión previa con otra firma, desinstalar
+primero (borra sus datos locales). El APK no pide permiso de Internet.
+
+## Registro de sesión (2026-09-14)
+
+- Retomada la Fase 4 desde `AGENTS.md` en `feature/phase4-whisper-recovery`.
+- Task 7 (`5b60dd0`, CI #67), Task 8 (`2824a22`, CI #70) y Task 9 (`a53b321`, CI #74)
+  implementadas, validadas por Actions y registradas en los tres documentos de
+  continuidad. Docs finales en `35ad661`.
+- Task 9 tuvo una falla de CI intermedia (`8a388b2`): al borrar el motor viejo se
+  fueron los helpers `writePcmToPipe`/`isAudioPipeDrained` que usaba el androidTest
+  `AudioPipeConsumptionTest`; se eliminó ese test (código muerto) en `a53b321`.
+- Automatizado el Release por tag y publicado `v0.4.0-whisper`.
+- **Pendiente:** prueba física en el Moto g max (arriba). El PR #1 sigue en borrador
+  hasta esa validación. No mergear a `main` ni borrar audio sin aprobación explícita
+  del usuario.
+
 ## Secuencia posterior (Task 8 y Task 9 — ya completadas)
 
 > Nota: Task 8 y Task 9 ya están implementadas y validadas (ver "Estado de la Fase 4"). Se conserva el detalle a continuación como registro histórico.
