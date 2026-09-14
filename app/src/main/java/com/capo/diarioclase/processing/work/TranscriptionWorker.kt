@@ -3,7 +3,7 @@ package com.capo.diarioclase.processing.work
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.app.ServiceInfo
+import android.content.pm.ServiceInfo
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -72,12 +72,11 @@ class TranscriptionWorker(
             throw cancelled
         } catch (_: Throwable) {
             Result.failure(errorData(TranscriptionFailure.INTERNAL, retryable = true))
+        } finally {
+            if (isStopped) {
+                runCatching { app.whisperEngine.cancel() }
+            }
         }
-    }
-
-    override fun onStopped() {
-        runCatching { app.whisperEngine.cancel() }
-        super.onStopped()
     }
 
     private fun createForegroundInfo(

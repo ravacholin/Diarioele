@@ -4,9 +4,12 @@ import java.io.FileNotFoundException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 class WhisperTranscriptionEngine(
     private val modelProvider: WhisperModelProvider,
@@ -25,10 +28,18 @@ class WhisperTranscriptionEngine(
         return try {
             ensureLoaded()
             val nativeResult = withContext(dispatcher) {
-                nativeRuntime.transcribe(
-                    samples = window.samples,
-                    options = WhisperOptions(threads = threadCount),
-                )
+                suspendCancellableCoroutine { continuation ->
+                    continuation.invokeOnCancellation { nativeRuntime.cancel() }
+                    try {
+                        val result = nativeRuntime.transcribe(
+                            samples = window.samples,
+                            options = WhisperOptions(threads = threadCount),
+                        )
+                        if (continuation.isActive) continuation.resume(result)
+                    } catch (error: Throwable) {
+                        if (continuation.isActive) continuation.resumeWithException(error)
+                    }
+                }
             }
             WindowTranscriptResult.Success(
                 nativeResult.spans.mapIndexedNotNull { index, span ->
