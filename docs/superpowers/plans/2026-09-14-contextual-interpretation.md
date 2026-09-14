@@ -27,7 +27,36 @@
 - Cambiar de modo no retranscribe ni consume inferencia.
 - Los campos editados no se sobrescriben.
 - Ningún fallo elimina audio, transcript, caché válido ni evidencia.
-- Cada tarea se sube a `feature/phase5-contextual-interpretation` y se valida con GitHub Actions.
+- Cada tarea usa su propia rama y PR contra `feature/phase5-contextual-interpretation`, según `PHASE5_AGENT_COLLABORATION.md`.
+- La app nunca promete controlar la facturación externa: garantiza que no selecciona rutas pagas y exige proyectos dedicados sin billing.
+- Inferencia remota desactivada por defecto; modo local siempre disponible.
+- Máximo rígido de dos requests por proveedor y paquete.
+- `NO_NETWORK` va directo a local; `401`, `403`, `402` y `429` abren circuito por ejecución.
+- Evidencia múltiple, correcciones y estado→campo se congelan en Task 1.
+- Cada paquete conserva ordinal de segmento y orden de entrada.
+- La interpretación es reanudable por paquete y tiene deadline total.
+- El transporte restringe HTTPS/hosts, redirects, bytes y tokens.
+- La edición se protege por campo.
+- El cierre físico usa una build release no depurable; simulación de fallos solo en debug.
+- El feedback para aprendizaje se difiere: no se agrega una segunda migración sin consumidor en esta fase.
+
+---
+
+### Task 0: Readiness colaborativo y baseline
+
+**Estado:** COMPLETADA documentalmente; falta confirmar el workflow disparado por el commit de CI.
+
+**Files:**
+- Modify: `.github/workflows/android-apk.yml`
+- Modify: `AGENTS.md`
+- Create: `PHASE5_AGENT_COLLABORATION.md`
+- Modify: `PHASE5_HANDOFF.md`
+
+- [x] Habilitar push de la rama de integración y ramas `feature/phase5-task-*`.
+- [x] Habilitar PRs cuyo base sea `feature/phase5-contextual-interpretation`.
+- [x] Autorizar únicamente inferencia remota de texto con consentimiento, manteniendo audio local.
+- [x] Definir DAG, propiedad de archivos, PRs y checkpoints.
+- [ ] Confirmar baseline verde y registrarlo en `PHASE5_HANDOFF.md`.
 
 ---
 
@@ -41,8 +70,9 @@
 - Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/InferenceContractTest.kt`
 
 **Interfaces:**
-- Consumes: `InterpretationRequest`.
-- Produces: `suspend fun infer(request): ProviderOutcome`.
+- Consumes: `InterpretationRequest` y una credencial efímera obtenida por el router.
+- Produces: `suspend fun infer(request, credential): ProviderOutcome`.
+- Congela `claimKey`, evidencia múltiple, supersesiones, orden de spans y política estado→campo.
 
 - [ ] **Step 1: Crear modelos comunes**
 
@@ -59,6 +89,8 @@ data class ProviderProfile(
 data class PublicTranscriptSpan(
     val publicId: String,
     val blockOrdinal: Int,
+    val audioSegmentOrdinal: Int,
+    val spanOrdinal: Int,
     val startMs: Long,
     val endMs: Long,
     val text: String,
@@ -93,6 +125,7 @@ enum class ProviderFailure {
     CONSENT_REQUIRED,
     NO_NETWORK,
     AUTHENTICATION,
+    BILLING_RISK,
     QUOTA,
     SERVER_UNAVAILABLE,
     TIMEOUT,
@@ -101,9 +134,27 @@ enum class ProviderFailure {
     INTERNAL,
 }
 
+@JvmInline
+value class EphemeralCredential(val value: String)
+
 fun interface InferenceProviderClient {
-    suspend fun infer(request: InterpretationRequest): ProviderOutcome
+    suspend fun infer(
+        request: InterpretationRequest,
+        credential: EphemeralCredential,
+    ): ProviderOutcome
 }
+
+/** Contrato JSON anterior a la conversión a modelos persistentes. */
+data class ProviderSemanticClaim(
+    val claimKey: String,
+    val category: String,
+    val value: String,
+    val normalizedValue: String,
+    val status: String,
+    val confidence: Double,
+    val evidenceSpanIds: List<String>,
+    val supersedesClaimKeys: List<String>,
+)
 ```
 
 - [ ] **Step 2: Crear escenarios sintéticos**
@@ -127,11 +178,11 @@ Agregar listas, rangos, números en palabras, cambio de página, citas, negacion
 
 `FakeInferenceProviderClient` recibe proveedor y cola de outcomes; registra requests e intentos. Permite simular 401, 429, 500, 503, timeout, JSON inválido y éxito.
 
-- [ ] **Step 4: Escribir pruebas rojas del contrato**
+- [ ] **Step 4: Escribir pruebas verdes del contrato**
 
-Afirmar que un resultado final solo contiene claims con evidencia local válida y que la procedencia coincide con el proveedor que produjo el JSON.
+Probar serialización/parsing de fixtures, invariantes de ids, lista de evidencia, supersesiones, orden de segmentos, fake configurable y política estado→campo. Las aserciones end-to-end del router y validador pertenecen a Tasks 5 y 7.
 
-- [ ] **Step 5: Ejecutar rojo**
+- [ ] **Step 5: Ejecutar verde**
 
 Run:
 
@@ -139,7 +190,7 @@ Run:
 ./gradlew testDebugUnitTest --tests '*InferenceContractTest'
 ```
 
-Expected: FAIL porque el router y el validador todavía no existen.
+Expected: PASS. Nunca integrar deliberadamente una prueba roja.
 
 - [ ] **Step 6: Commit**
 
@@ -482,15 +533,14 @@ git commit -m "feat: validate multi-provider claims with local evidence"
 ### Task 6: Caché por paquete y proveedor
 
 **Files:**
-- Modify: `app/src/main/java/com/capo/diarioclase/data/db/Entities.kt`
-- Modify: `app/src/main/java/com/capo/diarioclase/data/db/SessionDao.kt`
-- Modify: `app/src/main/java/com/capo/diarioclase/data/db/DiarioDatabase.kt`
 - Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/RoomInterpretationCache.kt`
 - Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/RoomInterpretationCacheTest.kt`
 - Modify: `app/src/test/java/com/capo/diarioclase/FullJourneyTest.kt`
+- Modify: `app/src/main/java/com/capo/diarioclase/diary/cleanup/CleanupCoordinator.kt`
+- Modify: `app/src/test/java/com/capo/diarioclase/diary/cleanup/CleanupCoordinatorTest.kt`
 
 **Interfaces:**
-- Consumes: paquete, proveedor, modelo, versiones y JSON validado.
+- Consumes: sesión, paquete, proveedor, modelo, versiones de prompt/esquema/validador y JSON validado.
 - Produces: respuestas reutilizables sin inferencia.
 
 - [ ] **Step 1: Escribir pruebas rojas**
@@ -517,7 +567,7 @@ data class InterpretationCacheEntity(
 )
 ```
 
-`cacheId` es SHA-256 de paquete, proveedor, modelo, prompt y esquema.
+`cacheId` es SHA-256 de sesión, paquete, proveedor, modelo, prompt, esquema y versión del validador. Toda consulta queda acotada a `sessionId` y revalida el JSON al leer.
 
 - [ ] **Step 3: Migrar Room 4→5**
 
@@ -558,6 +608,7 @@ git commit -m "feat: cache validated free provider responses"
 - Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/FallbackClaimExtractor.kt`
 - Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/FreeInferenceRouterTest.kt`
 - Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/ProviderRetryPolicyTest.kt`
+- Modify or wrap: `app/src/main/java/com/capo/diarioclase/processing/evidence/LiteralClaimExtractor.kt`
 
 **Interfaces:**
 - Consumes: orden, clientes, credenciales, caché, validador y paquete.
@@ -597,7 +648,7 @@ sealed interface RoutedPacketOutcome {
 
 - [ ] **Step 3: Implementar política de reintento**
 
-`QUOTA` y `AUTHENTICATION` no reintentan. `SERVER_UNAVAILABLE` y `TIMEOUT` reintentan una vez después de 2.000 ms. `INVALID_RESPONSE` permite una única solicitud correctiva que agrega el error de validación al prompt sin incluir datos nuevos.
+`QUOTA`, `AUTHENTICATION`, `BILLING_RISK` y `NO_NETWORK` no reintentan. `SERVER_UNAVAILABLE` y `TIMEOUT` pueden reintentar una vez después de 2.000 ms. `INVALID_RESPONSE` puede usar una solicitud correctiva únicamente si todavía queda presupuesto. Nunca superar dos requests totales por proveedor y paquete. Aplicar deadline total, cancelación cooperativa y circuit breaker por ejecución.
 
 - [ ] **Step 4: Implementar router**
 
@@ -647,9 +698,9 @@ git commit -m "feat: route inference across free providers"
 
 Afirmar que el router comienza solo después de completar Whisper, cambiar de modo no llama a la red, campos editados sobreviven, reapertura usa caché y cancelación conserva datos.
 
-- [ ] **Step 2: Integrar router**
+- [ ] **Step 2: Integrar router reanudable**
 
-Reemplazar extracción directa por construcción de paquetes, routing, reducción y proyección. No modificar motor Whisper, ventanas, deduplicación ni checkpoints.
+Separar el estado de interpretación del éxito de Whisper. Persistir paquete actual, proveedor, intento y resultado; procesar como máximo una unidad reanudable por paso. Reemplazar extracción directa por paquetes, routing, reducción y proyección. No modificar motor Whisper, ventanas, deduplicación ni checkpoints.
 
 - [ ] **Step 3: Componer dependencias**
 
@@ -698,7 +749,7 @@ git commit -m "feat: expose free inference fallback chain"
 
 ---
 
-### Task 9: Feedback, validación integral y APK
+### Task 9: Validación integral, release y APK
 
 **Files:**
 - Modify: `app/src/main/java/com/capo/diarioclase/data/db/Entities.kt`
@@ -712,12 +763,12 @@ git commit -m "feat: expose free inference fallback chain"
 - Modify: `app/build.gradle.kts`
 
 **Interfaces:**
-- Consumes: borrador generado, edición aprobada y cadena completa.
-- Produces: feedback local, versión `0.5.0-free-router`, continuidad, CI verde y APK.
+- Consumes: cadena completa y edición/aprobación existentes.
+- Produces: versión `0.5.0-free-router`, continuidad, CI verde y APK release.
 
-- [ ] **Step 1: Agregar feedback local**
+- [ ] **Step 1: Verificar persistencia y ediciones**
 
-Crear migración Room 5→6 y una entidad que guarde campos generados, campos aprobados, origen e ids de claims. No guardar audio, transcript completo ni claves. El feedback no modifica automáticamente reglas.
+No agregar feedback ni migración 5→6 en esta fase. Probar migración 4→5 con una base poblada y protección por campo editado. El aprendizaje con feedback queda para una fase posterior cuando exista un consumidor concreto.
 
 - [ ] **Step 2: Escribir prueba física**
 
