@@ -12,7 +12,8 @@ Incorporar transcripción local, privada y gratuita en español rioplatense. El 
 - Rama de trabajo: `feature/phase4-whisper-recovery`
 - PR borrador: [#1](https://github.com/ravacholin/Diarioele/pull/1)
 - Base inicial: `main@35c45a1`
-- Primer checkpoint durable: `7a20970`
+- Último checkpoint funcional: `ec499a2`
+- Validación: GitHub Actions `#29`
 
 No debe quedar trabajo terminado únicamente en un entorno temporal. Cada bloque funcional se confirma en esta rama y se valida con GitHub Actions antes de continuar.
 
@@ -20,14 +21,14 @@ No debe quedar trabajo terminado únicamente en un entorno temporal. Cada bloque
 
 | Bloque | Estado | Evidencia remota |
 |---|---|---|
-| Infraestructura durable y CI de la rama | En curso | `7a20970` |
-| Modelo español local | Pendiente de reconstrucción | |
+| Infraestructura durable y CI de la rama | Recuperado | PR #1, workflow #29 |
+| Modelo español local | Reconstruido, validación en curso | `ec499a2` |
 | Motor nativo whisper.cpp | Pendiente de reconstrucción | |
 | Conversión de audio y segmentación | Pendiente de reconstrucción | |
 | Procesamiento persistente y reanudable | Pendiente de reconstrucción | |
 | Extracción conservadora de la ficha | Pendiente de reconstrucción | |
 | Pantallas de progreso, error y revisión | Pendiente de reconstrucción | |
-| Pruebas y APK verificable | Pendiente | |
+| Pruebas y APK verificable | En curso | workflow #29 |
 
 ## Reglas de continuidad
 
