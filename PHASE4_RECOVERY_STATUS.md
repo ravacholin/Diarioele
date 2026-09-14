@@ -12,8 +12,8 @@ Incorporar transcripción local, privada y gratuita en español rioplatense. El 
 - Rama de trabajo: `feature/phase4-whisper-recovery`
 - PR borrador: [#1](https://github.com/ravacholin/Diarioele/pull/1)
 - Base inicial: `main@35c45a1`
-- Último checkpoint funcional validado: `b5c42b3`
-- Última validación completa: GitHub Actions `#57`, exitosa
+- Último checkpoint funcional validado: `5b60dd0` (Task 7)
+- Última validación completa: GitHub Actions `#67`, exitosa
 
 No debe quedar trabajo terminado únicamente en un entorno temporal. Cada bloque funcional se confirma en esta rama y se valida con GitHub Actions antes de continuar.
 
@@ -34,9 +34,10 @@ No debe quedar trabajo terminado únicamente en un entorno temporal. Cada bloque
 | Motor nativo whisper.cpp ARM64 | Recuperado y validado | `47ab1b9`, workflow #41 |
 | Coordinador reanudable por ventana | Recuperado y validado | `2872f49`, workflow #49 |
 | Ejecución persistente en segundo plano | Recuperado y validado | `b5c42b3`, workflow #57 |
-| Extracción conservadora de la ficha | Pendiente de reconstrucción | |
-| Pantallas de progreso, error y revisión | Pendiente de reconstrucción | |
-| Integración completa y prueba en teléfono | Pendiente | |
+| UI observable sin descarga de idioma (Task 7) | Recuperado y validado | `5b60dd0`, workflow #67 |
+| Limpieza segura de runs y checkpoints (Task 8) | Pendiente | |
+| Composición y entrega del APK (Task 9) | Pendiente | |
+| Prueba física en el Moto g max | Pendiente | |
 
 ## Garantías ya implementadas
 
@@ -79,7 +80,7 @@ Durante la compilación, CMake obtiene `whisper.cpp` desde su repositorio oficia
 
 ## Estado de integración
 
-El trabajo persistente ya está compilado y probado, pero la interfaz todavía invoca el coordinador sincrónico anterior. El siguiente bloque debe conectar las acciones de la interfaz con el planificador, mostrar progreso y errores, y retirar el flujo antiguo de descarga de idioma de Android.
+La interfaz ya está conectada al planificador persistente (Task 7, `5b60dd0`, workflow #67): las acciones delegan en `TranscriptionWorkScheduler`, el `CaptureViewModel` observa el progreso persistido desde Room y se retiró el flujo antiguo de descarga de idioma de Android. Falta Task 8 (que la limpieza temporal también borre y cuente `transcription_runs` y `transcription_checkpoints`), Task 9 (retirar el motor viejo y preparar el APK) y la prueba física en el teléfono.
 
 ## Trabajo local perdido
 

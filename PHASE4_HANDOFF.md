@@ -46,8 +46,8 @@ La próxima tarea es conectar la UI con `TranscriptionWorkScheduler` y observar 
 | PR | [#1](https://github.com/ravacholin/Diarioele/pull/1), borrador |
 | Base histórica de recuperación | `main@35c45a1` |
 | Head documental previo a este archivo | `e079a9b47b09e4bd1e5de92e0378ddfa67ea2090` |
-| Último código funcional validado | `b5c42b3b59ec7d06c483763b30f398765c5bb3b5` |
-| Última CI completa validada | workflow `#57`, run `34878201879` |
+| Último código funcional validado | `5b60dd0f5d21cda21b173728ad3228467fbf4e14` (Task 7) |
+| Última CI completa validada | workflow `#67`, run `34887686385` |
 | APK de esa CI | artefacto `DiarioClase-Android-debug`, expira 2026-09-28 |
 
 El commit documental posterior a `b5c42b3` no cambia código. Si hay commits posteriores, verificar su CI antes de considerarlos funcionales.
@@ -65,6 +65,7 @@ El commit documental posterior a `b5c42b3` no cambia código. Si hay commits pos
 | Coordinador | Procesamiento por ventana, confirmación transaccional y reanudación | `2872f49`, workflow #49 |
 | Segundo plano | WorkManager único por sesión, foreground, progreso, pausa y timeout | `b5c42b3`, workflow #57 |
 | Registro durable | Estado de recuperación actualizado | `e079a9b` |
+| UI observable (Task 7) | UI conectada al planificador persistente, progreso observado desde Room y flujo de descarga de idioma retirado | `5b60dd0`, workflow #67 |
 
 ## Arquitectura actual
 
@@ -153,106 +154,47 @@ El commit documental posterior a `b5c42b3` no cambia código. Si hay commits pos
 
 ## Limitación actual crítica
 
-La infraestructura WorkManager compila y está probada, pero no está conectada completamente a la experiencia visible.
+La UI ya está conectada al procesamiento persistente (Task 7, `5b60dd0`, workflow #67):
 
-Hoy:
+- `AndroidCaptureActions` expone `startProcessing`/`pauseProcessing`/`resumeProcessing`, delegando en `app.transcriptionScheduler`.
+- `CaptureViewModel` observa `Flow<TranscriptionProgress?>` desde Room y deriva la pantalla del estado persistido; no ejecuta un job de inferencia propio.
+- `CaptureUiState` ya no contiene `SpanishModelDownloadState`; expone `processedMs`, `processingTotalMs`, `progressPercent`, `progressLabel`, `transcriptionPaused` y `processingFailure`.
+- La UI muestra progreso determinado, pausa/reanudar/reintentar y "PREPARANDO MODELO", sin controles de descarga de idioma.
 
-- `AndroidCaptureActions.process` llama a `app.transcriptionCoordinator.process(id, mode)`.
-- `CaptureViewModel` espera un `ProcessingOutcome` sincrónico.
-- `CaptureUiState` todavía contiene `SpanishModelDownloadState`.
-- La UI todavía ofrece el flujo de descarga de idioma de Android.
-- `DiarioClaseApp` todavía construye `AndroidOnDeviceTranscriptionEngine`, aunque el coordinador usa `whisperEngine`.
+Pendientes conocidos:
 
-Consecuencia: el APK de workflow #57 valida la infraestructura, pero el usuario todavía no recibe la experiencia final de procesamiento persistente. No describir esta versión como Fase 4 terminada.
+- `DiarioClaseApp` todavía construye `AndroidOnDeviceTranscriptionEngine` y `SpanishModelSupport.kt` sigue definido (sin usar por la UI). Su eliminación es Task 9.
+- La limpieza temporal todavía no borra ni cuenta `transcription_checkpoints` ni `transcription_runs`. Eso es Task 8.
 
-## Próximo paso exacto: Task 7
+Consecuencia: falta completar Task 8 (limpieza segura) y Task 9 (entrega) antes de describir la Fase 4 como terminada. Ninguna CI verde reemplaza la prueba física en el Moto g max.
 
-Objetivo: UI observable sin descarga de idioma.
+## Próximo paso exacto: Task 8
+
+Objetivo: limpieza segura que también borra y cuenta los datos de Whisper.
 
 ### Archivos principales
 
-- `app/src/main/java/com/capo/diarioclase/ui/capture/CaptureUiState.kt`
-- `app/src/main/java/com/capo/diarioclase/ui/capture/CaptureViewModel.kt`
-- `app/src/main/java/com/capo/diarioclase/ui/capture/CaptureScreen.kt`
-- `app/src/main/java/com/capo/diarioclase/AndroidCaptureActions.kt`
-- `app/src/main/java/com/capo/diarioclase/MainActivity.kt`
-- `app/src/test/java/com/capo/diarioclase/ui/capture/CaptureViewModelTest.kt`
-- `app/src/test/java/com/capo/diarioclase/FullJourneyTest.kt`
+- `app/src/main/java/com/capo/diarioclase/diary/cleanup/CleanupCoordinator.kt` (contiene `RoomTemporaryCleanupStore`).
+- `app/src/main/java/com/capo/diarioclase/data/db/SessionDao.kt`.
+- `app/src/test/java/com/capo/diarioclase/diary/cleanup/CleanupCoordinatorTest.kt`.
+- `app/src/test/java/com/capo/diarioclase/FullJourneyTest.kt`.
 
-### Contrato esperado
+### Cambios esperados
 
-Reemplazar el procesamiento sincrónico de `CaptureActions` por:
+- En `RoomTemporaryCleanupStore.deleteSessionTemporaryRows` agregar `dao.deleteCheckpoints(sessionId)` y `dao.deleteTranscriptionRun(sessionId)` (ambas queries ya existen en `SessionDao`).
+- Extender `SessionDao.temporaryRowCount` para sumar las filas de `transcription_checkpoints` y `transcription_runs` de la sesión, de modo que el archivado solo ocurra con cero temporales, incluidos runs y checkpoints.
 
-```kotlin
-fun startProcessing(id: SessionId, mode: InterpretationMode)
-suspend fun pauseProcessing(id: SessionId)
-fun resumeProcessing(id: SessionId, mode: InterpretationMode)
-```
+### Garantías a preservar
 
-Las implementaciones deben delegar en `app.transcriptionScheduler`.
+- Ante cualquier fallo se conservan audio, checkpoints, spans y run.
+- Tras aprobación confirmada, `temporaryRowCount == 0` y el diario permanente es idéntico al borrador aprobado.
 
-El ViewModel debe consumir `Flow<TranscriptionProgress?>` y derivar la pantalla desde Room. No debe mantener ni ejecutar un job de inferencia propio.
+### Pruebas mínimas de Task 8
 
-### Estado visible requerido
+- Un `TranscriptionRunEntity` y un `TranscriptionCheckpointEntity` sembrados sobreviven a un fallo de limpieza.
+- Tras una aprobación verificada desaparecen y el conteo llega a cero.
 
-Agregar a `CaptureUiState`:
-
-- `processedMs`
-- `processingTotalMs`
-- `progressPercent`
-- `progressLabel`
-- `transcriptionPaused`
-- `processingFailure`
-
-La pantalla debe mostrar:
-
-- `WHISPER LOCAL · ESPAÑOL`
-- `MODELO INTEGRADO`
-- Barra de progreso determinada.
-- Porcentaje confirmado.
-- Tiempo procesado y total.
-- Bloque y tramo actuales cuando estén disponibles.
-- `PAUSAR PROCESAMIENTO`.
-- `RETOMAR` cuando esté pausado.
-- `REINTENTAR` ante un fallo recuperable.
-- `PREPARANDO MODELO` durante preparación.
-- No mostrar tiempo restante estimado.
-
-### Eliminaciones de Task 7
-
-Eliminar de UI, ViewModel y acciones:
-
-- `onRequestModel`
-- `requestLanguageModel`
-- `SpanishModelDownloadState`
-- `modelDownload`
-- `modelAllowsProcessing`
-- Todos los textos y controles sobre descarga de español administrada por Android.
-
-No eliminar todavía las clases antiguas del motor si eso rompe commits intermedios. Su eliminación definitiva corresponde a Task 9.
-
-### Pruebas mínimas de Task 7
-
-- El progreso persistido se refleja en porcentaje y etiqueta.
-- Pausar no elimina `lastRecording`.
-- Cerrar o recrear el ViewModel no reinicia desde cero.
-- Reanudar usa el mismo `sessionId`.
-- Un fallo muestra explicación y conserva el audio.
-- Al completar aparece la ficha editable.
-- No queda ninguna expectativa de descarga de idioma en tests de UI.
-
-Ejecutar:
-
-```bash
-./gradlew testDebugUnitTest --tests '*CaptureViewModelTest' --tests '*FullJourneyTest'
-./gradlew lintDebug assembleDebug assembleDebugAndroidTest --max-workers=2 -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
-```
-
-Commit sugerido:
-
-```text
-feat: show persistent Whisper progress and controls
-```
+Commit sugerido: `test: preserve Whisper data until verified approval`.
 
 Después del push, esperar GitHub Actions. Solo si queda verde, actualizar este archivo y `PHASE4_RECOVERY_STATUS.md`.
 

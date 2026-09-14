@@ -13,8 +13,8 @@
 - Rama activa: `feature/phase4-whisper-recovery`
 - PR borrador: `#1`
 - Head documental al crear este archivo: `e079a9b47b09e4bd1e5de92e0378ddfa67ea2090`
-- Último código funcional validado: `b5c42b3b59ec7d06c483763b30f398765c5bb3b5`
-- Última validación completa del código: GitHub Actions `#57`, run `34878201879`
+- Último código funcional validado: `5b60dd0f5d21cda21b173728ad3228467fbf4e14` (Task 7)
+- Última validación completa del código: GitHub Actions `#67`, run `34887686385`
 
 Antes de trabajar, comprobar que estos datos no hayan sido superados por un checkpoint más reciente documentado en `PHASE4_HANDOFF.md`.
 
@@ -34,4 +34,6 @@ Antes de trabajar, comprobar que estos datos no hayan sido superados por un chec
 
 ## Próxima tarea
 
-Implementar Task 7, UI observable sin descarga de idioma. La lista exacta, criterios y riesgos están en `PHASE4_HANDOFF.md`.
+Task 7 (UI observable sin descarga de idioma) está validada por GitHub Actions `#67`.
+
+La próxima tarea es Task 8, limpieza segura de `transcription_runs` y `transcription_checkpoints`. La lista exacta, criterios y riesgos están en `PHASE4_HANDOFF.md`.
