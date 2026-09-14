@@ -188,13 +188,16 @@ estado, progreso y error si algo falla. Ninguna CI verde reemplaza esta prueba.
 
 El workflow `.github/workflows/android-apk.yml` publica el APK de dos formas:
 
-1. **GitHub Release (recomendado para el teléfono).** Al pushear un tag `v*`, el
-   workflow compila y crea un Release (marcado *prerelease*) con
-   `app-debug.apk` adjunto como `DiarioClase-<tag>-debug.apk`. Descarga directa
-   desde `https://github.com/ravacholin/Diarioele/releases`, sin zip ni vencimiento.
-   Primer release publicado con el tag **`v0.4.0-whisper`** (código `a53b321`).
-   Para publicar una versión nueva: subir el código, crear y pushear un tag nuevo
-   (`git tag v0.4.1-whisper && git push origin v0.4.1-whisper`).
+1. **GitHub Release (recomendado para el teléfono).** El workflow crea un Release
+   (marcado *prerelease*) con `app-debug.apk` adjunto como
+   `DiarioClase-<tag>-debug.apk`. Descarga directa desde
+   `https://github.com/ravacholin/Diarioele/releases`, sin zip ni vencimiento.
+   Primer release: **`v0.4.0-whisper`**. Se dispara de dos maneras:
+   - **`workflow_dispatch` con input `release_tag`** (la que se usa desde una sesión
+     de agente, porque el token de sesión **no** puede pushear tags): ejecutar el
+     workflow "Compilar APK Android" sobre la rama con `release_tag=v0.4.x-whisper`.
+     La CI crea el tag (en `github.sha`) y el Release del lado del servidor.
+   - **Push de un tag `v*`** (si tenés permiso local de push de tags).
 2. **Artefacto de Actions.** Cada compilación verde deja el artefacto
    `DiarioClase-Android-debug` (un `.zip` con `app-debug.apk`), con retención de
    14 días.
