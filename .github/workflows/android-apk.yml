@@ -35,6 +35,9 @@ jobs:
       - name: Habilitar Gradle Wrapper
         run: chmod +x gradlew
 
+      - name: Preparar modelo Whisper verificado
+        run: bash scripts/prepare-whisper-model.sh
+
       - name: Ejecutar pruebas
         id: tests
         continue-on-error: true
