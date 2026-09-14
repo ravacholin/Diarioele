@@ -40,7 +40,12 @@ class DiarioClaseApp : Application() {
     lateinit var recovery: RecordingRecovery
     lateinit var processingStore: RoomProcessingStore
     lateinit var transcriptionCoordinator: TranscriptionCoordinator
-    lateinit var transcriptionScheduler: TranscriptionWorkScheduler
+    val transcriptionScheduler: TranscriptionWorkScheduler by lazy {
+        TranscriptionWorkScheduler(
+            commands = DaoTranscriptionRunCommands(database.sessions()),
+            work = WorkManagerEnqueuer(WorkManager.getInstance(this)),
+        )
+    }
     lateinit var transcriptionEngine: AndroidOnDeviceTranscriptionEngine
     lateinit var whisperEngine: WhisperTranscriptionEngine
     lateinit var cleanupFiles: CleanupFileStore
@@ -83,10 +88,6 @@ class DiarioClaseApp : Application() {
             nativeRuntime = WhisperNativeBridge(),
         )
         transcriptionCoordinator = TranscriptionCoordinator(processingStore, whisperEngine)
-        transcriptionScheduler = TranscriptionWorkScheduler(
-            commands = DaoTranscriptionRunCommands(database.sessions()),
-            work = WorkManagerEnqueuer(WorkManager.getInstance(this)),
-        )
         appScope.launch {
             database.sessions().recoverInterruptedTranscriptions()
             recovery.onAppStart()
