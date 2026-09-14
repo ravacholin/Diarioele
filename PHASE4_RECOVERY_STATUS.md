@@ -17,6 +17,12 @@ Incorporar transcripción local, privada y gratuita en español rioplatense. El 
 
 No debe quedar trabajo terminado únicamente en un entorno temporal. Cada bloque funcional se confirma en esta rama y se valida con GitHub Actions antes de continuar.
 
+## Continuidad entre agentes
+
+- Punto de entrada operativo: [`AGENTS.md`](AGENTS.md).
+- Estado técnico, arquitectura, riesgos y próximo paso: [`PHASE4_HANDOFF.md`](PHASE4_HANDOFF.md).
+- Todo agente debe actualizar ambos registros después de subir y validar un bloque nuevo.
+
 ## Estado
 
 | Bloque | Estado | Evidencia remota |
