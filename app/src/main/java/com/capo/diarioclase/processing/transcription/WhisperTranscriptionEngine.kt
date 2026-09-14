@@ -64,7 +64,7 @@ class WhisperTranscriptionEngine(
             failure(TranscriptionFailure.INTERRUPTED, retryable = true)
         } catch (cancelled: CancellationException) {
             nativeRuntime.cancel()
-            failure(TranscriptionFailure.INTERRUPTED, retryable = true, detail = cancelled.message)
+            throw cancelled
         } catch (invalid: IllegalArgumentException) {
             failure(TranscriptionFailure.INVALID_AUDIO, retryable = false, detail = invalid.message)
         } catch (error: Throwable) {
@@ -80,6 +80,10 @@ class WhisperTranscriptionEngine(
             nativeRuntime.load(model.absolutePath)
             loadedModelPath = model.absolutePath
         }
+    }
+
+    fun cancel() {
+        nativeRuntime.cancel()
     }
 
     override fun close() {

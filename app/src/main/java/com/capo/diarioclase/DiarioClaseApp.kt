@@ -2,6 +2,7 @@ package com.capo.diarioclase
 
 import android.app.Application
 import androidx.room.Room
+import androidx.work.WorkManager
 import com.capo.diarioclase.core.clock.SystemClock
 import com.capo.diarioclase.data.db.DiarioDatabase
 import com.capo.diarioclase.data.repository.RoomDiaryRepository
@@ -19,6 +20,9 @@ import com.capo.diarioclase.processing.transcription.WhisperNativeBridge
 import com.capo.diarioclase.processing.transcription.WhisperTranscriptionEngine
 import com.capo.diarioclase.processing.work.RoomProcessingStore
 import com.capo.diarioclase.processing.work.TranscriptionCoordinator
+import com.capo.diarioclase.processing.work.DaoTranscriptionRunCommands
+import com.capo.diarioclase.processing.work.TranscriptionWorkScheduler
+import com.capo.diarioclase.processing.work.WorkManagerEnqueuer
 import com.capo.diarioclase.recording.audio.CleanupFileStore
 import com.capo.diarioclase.recording.audio.FileSegmentStore
 import com.capo.diarioclase.recording.audio.PersistingSegmentStore
@@ -36,6 +40,7 @@ class DiarioClaseApp : Application() {
     lateinit var recovery: RecordingRecovery
     lateinit var processingStore: RoomProcessingStore
     lateinit var transcriptionCoordinator: TranscriptionCoordinator
+    lateinit var transcriptionScheduler: TranscriptionWorkScheduler
     lateinit var transcriptionEngine: AndroidOnDeviceTranscriptionEngine
     lateinit var whisperEngine: WhisperTranscriptionEngine
     lateinit var cleanupFiles: CleanupFileStore
@@ -78,6 +83,10 @@ class DiarioClaseApp : Application() {
             nativeRuntime = WhisperNativeBridge(),
         )
         transcriptionCoordinator = TranscriptionCoordinator(processingStore, whisperEngine)
+        transcriptionScheduler = TranscriptionWorkScheduler(
+            commands = DaoTranscriptionRunCommands(database.sessions()),
+            work = WorkManagerEnqueuer(WorkManager.getInstance(this)),
+        )
         appScope.launch {
             database.sessions().recoverInterruptedTranscriptions()
             recovery.onAppStart()

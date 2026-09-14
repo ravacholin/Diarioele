@@ -237,6 +237,7 @@ class TranscriptionCoordinator(
                 currentSegmentId = segment.ready.id.value,
                 failure = null,
             )
+            store.saveRun(processingRun)
             val samples = try {
                 pcmReader(File(segment.ready.path), plan)
             } catch (_: Throwable) {
@@ -345,6 +346,29 @@ class TranscriptionCoordinator(
             ),
         )
         return ProcessingStepOutcome.Complete(draft)
+    }
+
+    suspend fun failCurrent(
+        sessionId: SessionId,
+        failure: TranscriptionFailure,
+        retryable: Boolean,
+    ): ProcessingStepOutcome.Failed? {
+        val run = store.run(sessionId) ?: return null
+        val segmentId = run.currentSegmentId?.let(::SegmentId) ?: return null
+        val segments = store.segments(sessionId).sortedBy { it.ordinal }
+        val segment = segments.firstOrNull { it.ready.id == segmentId } ?: return null
+        return fail(
+            sessionId = sessionId,
+            segment = segment,
+            run = run,
+            knownCheckpoints = store.checkpoints(sessionId),
+            totalWindows = segments.sumOf {
+                AudioWindowPlanner.plan(it.ready.durationMs).size
+            },
+            checkpoint = store.checkpoint(segmentId),
+            failure = failure,
+            retryable = retryable,
+        )
     }
 
     private suspend fun fail(
