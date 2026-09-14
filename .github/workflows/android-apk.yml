@@ -19,7 +19,6 @@ on:
   pull_request:
     branches:
       - main
-      - feature/phase5/contextual-interpretation
       - feature/phase5-contextual-interpretation
 
 permissions:
