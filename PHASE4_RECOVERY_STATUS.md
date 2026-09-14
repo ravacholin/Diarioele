@@ -12,8 +12,8 @@ Incorporar transcripción local, privada y gratuita en español rioplatense. El 
 - Rama de trabajo: `feature/phase4-whisper-recovery`
 - PR borrador: [#1](https://github.com/ravacholin/Diarioele/pull/1)
 - Base inicial: `main@35c45a1`
-- Último checkpoint funcional: `ec499a2`
-- Validación: GitHub Actions `#29`
+- Último checkpoint funcional validado: `3e6291e`
+- Última validación completa: GitHub Actions `#33`, exitosa
 
 No debe quedar trabajo terminado únicamente en un entorno temporal. Cada bloque funcional se confirma en esta rama y se valida con GitHub Actions antes de continuar.
 
@@ -21,19 +21,19 @@ No debe quedar trabajo terminado únicamente en un entorno temporal. Cada bloque
 
 | Bloque | Estado | Evidencia remota |
 |---|---|---|
-| Infraestructura durable y CI de la rama | Recuperado | PR #1, workflow #29 |
-| Modelo español local | Reconstruido, validación en curso | `ec499a2` |
+| Infraestructura durable y CI de la rama | Recuperado | PR #1, workflow #31 |
+| Modelo español local | Recuperado y validado | `ec499a2`, workflow #29 |
+| Ventanas WAV y deduplicación temporal | Recuperado y validado | `3e6291e`, workflow #33 |
 | Motor nativo whisper.cpp | Pendiente de reconstrucción | |
-| Conversión de audio y segmentación | Pendiente de reconstrucción | |
-| Procesamiento persistente y reanudable | Pendiente de reconstrucción | |
+| Checkpoints persistentes y reanudación | Pendiente de reconstrucción | |
 | Extracción conservadora de la ficha | Pendiente de reconstrucción | |
 | Pantallas de progreso, error y revisión | Pendiente de reconstrucción | |
-| Pruebas y APK verificable | En curso | workflow #29 |
+| Integración completa y prueba en teléfono | Pendiente | |
 
 ## Reglas de continuidad
 
 1. Un bloque no cuenta como recuperado hasta que su commit exista en GitHub.
-2. Este archivo se actualiza en el mismo checkpoint o inmediatamente después.
+2. Este archivo se actualiza después de cada validación.
 3. GitHub Actions debe compilar y ejecutar las pruebas en cada push.
 4. El PR permanece en borrador hasta superar todas las validaciones.
 5. Si un entorno desaparece, el siguiente retoma desde el SHA remoto indicado aquí.
