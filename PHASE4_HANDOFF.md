@@ -46,8 +46,8 @@ La próxima tarea es conectar la UI con `TranscriptionWorkScheduler` y observar 
 | PR | [#1](https://github.com/ravacholin/Diarioele/pull/1), borrador |
 | Base histórica de recuperación | `main@35c45a1` |
 | Head documental previo a este archivo | `e079a9b47b09e4bd1e5de92e0378ddfa67ea2090` |
-| Último código funcional validado | `5b60dd0f5d21cda21b173728ad3228467fbf4e14` (Task 7) |
-| Última CI completa validada | workflow `#67`, run `34887686385` |
+| Último código funcional validado | `a53b32145cb044b8539f05231031658c0ae2d6c6` (Tasks 7, 8 y 9) |
+| Última CI completa validada | workflow `#74`, run `34889834345` |
 | APK de esa CI | artefacto `DiarioClase-Android-debug`, expira 2026-09-28 |
 
 El commit documental posterior a `b5c42b3` no cambia código. Si hay commits posteriores, verificar su CI antes de considerarlos funcionales.
@@ -66,6 +66,8 @@ El commit documental posterior a `b5c42b3` no cambia código. Si hay commits pos
 | Segundo plano | WorkManager único por sesión, foreground, progreso, pausa y timeout | `b5c42b3`, workflow #57 |
 | Registro durable | Estado de recuperación actualizado | `e079a9b` |
 | UI observable (Task 7) | UI conectada al planificador persistente, progreso observado desde Room y flujo de descarga de idioma retirado | `5b60dd0`, workflow #67 |
+| Limpieza segura (Task 8) | La limpieza temporal borra y cuenta `transcription_runs` y `transcription_checkpoints`; se archiva solo con cero temporales | `2824a22`, workflow #70 |
+| Composición y entrega (Task 9) | Motor de reconocimiento anterior eliminado, manifiesto sin RecognitionService, versión `0.4.0-whisper`, protocolo de prueba física | `a53b321`, workflow #74 |
 
 ## Arquitectura actual
 
@@ -152,53 +154,39 @@ El commit documental posterior a `b5c42b3` no cambia código. Si hay commits pos
 - Whisper local reemplaza esa dependencia.
 - Todavía quedan clases y controles antiguos para eliminar en Task 7 y Task 9.
 
-## Limitación actual crítica
+## Estado de la Fase 4
 
-La UI ya está conectada al procesamiento persistente (Task 7, `5b60dd0`, workflow #67):
+Tasks 7, 8 y 9 están completas y validadas por GitHub Actions `#74` (`a53b321`):
 
-- `AndroidCaptureActions` expone `startProcessing`/`pauseProcessing`/`resumeProcessing`, delegando en `app.transcriptionScheduler`.
-- `CaptureViewModel` observa `Flow<TranscriptionProgress?>` desde Room y deriva la pantalla del estado persistido; no ejecuta un job de inferencia propio.
-- `CaptureUiState` ya no contiene `SpanishModelDownloadState`; expone `processedMs`, `processingTotalMs`, `progressPercent`, `progressLabel`, `transcriptionPaused` y `processingFailure`.
-- La UI muestra progreso determinado, pausa/reanudar/reintentar y "PREPARANDO MODELO", sin controles de descarga de idioma.
+- **Task 7** (`5b60dd0`, #67): la UI está conectada al procesamiento persistente.
+  `AndroidCaptureActions` expone `startProcessing`/`pauseProcessing`/`resumeProcessing`
+  delegando en `app.transcriptionScheduler`; `CaptureViewModel` observa
+  `Flow<TranscriptionProgress?>` desde Room sin ejecutar inferencia propia;
+  `CaptureUiState` expone `processedMs`, `processingTotalMs`, `progressPercent`,
+  `progressLabel`, `transcriptionPaused` y `processingFailure`; la pantalla muestra
+  progreso determinado, pausa/reanudar/reintentar y "PREPARANDO MODELO", sin
+  controles de descarga de idioma.
+- **Task 8** (`2824a22`, #70): la limpieza temporal borra y cuenta
+  `transcription_runs` y `transcription_checkpoints`; una ficha se archiva solo
+  cuando `temporaryRowCount == 0`, y un fallo conserva audio, run y checkpoints.
+- **Task 9** (`a53b321`, #74): se eliminaron `AndroidOnDeviceTranscriptionEngine`,
+  `RecognitionDeadline` y `SpanishModelSupport` con sus pruebas (incluido
+  `AudioPipeConsumptionTest`, que ejercitaba helpers del motor viejo); el manifiesto
+  ya no consulta `RecognitionService`; la versión es `0.4.0-whisper` (código 6); el
+  APK sigue sin permiso de Internet.
 
-Pendientes conocidos:
+## Próximo paso exacto: prueba física
 
-- `DiarioClaseApp` todavía construye `AndroidOnDeviceTranscriptionEngine` y `SpanishModelSupport.kt` sigue definido (sin usar por la UI). Su eliminación es Task 9.
-- La limpieza temporal todavía no borra ni cuenta `transcription_checkpoints` ni `transcription_runs`. Eso es Task 8.
+La Fase 4 está completa en código y validada por CI, pero **no** probada en el
+teléfono. El siguiente paso es la validación física en el Moto g max siguiendo
+`PHASE4_WHISPER_DEVICE_TEST.md` (10 s → 1 min pausa/reanudar → 10 min
+cierre/reapertura → bloque largo). Reglas: desactivar red, no aprobar durante una
+prueba de fallo (aprobar borra los temporales), y conservar el audio y registrar
+estado, progreso y error si algo falla. Ninguna CI verde reemplaza esta prueba.
 
-Consecuencia: falta completar Task 8 (limpieza segura) y Task 9 (entrega) antes de describir la Fase 4 como terminada. Ninguna CI verde reemplaza la prueba física en el Moto g max.
+## Secuencia posterior (Task 8 y Task 9 — ya completadas)
 
-## Próximo paso exacto: Task 8
-
-Objetivo: limpieza segura que también borra y cuenta los datos de Whisper.
-
-### Archivos principales
-
-- `app/src/main/java/com/capo/diarioclase/diary/cleanup/CleanupCoordinator.kt` (contiene `RoomTemporaryCleanupStore`).
-- `app/src/main/java/com/capo/diarioclase/data/db/SessionDao.kt`.
-- `app/src/test/java/com/capo/diarioclase/diary/cleanup/CleanupCoordinatorTest.kt`.
-- `app/src/test/java/com/capo/diarioclase/FullJourneyTest.kt`.
-
-### Cambios esperados
-
-- En `RoomTemporaryCleanupStore.deleteSessionTemporaryRows` agregar `dao.deleteCheckpoints(sessionId)` y `dao.deleteTranscriptionRun(sessionId)` (ambas queries ya existen en `SessionDao`).
-- Extender `SessionDao.temporaryRowCount` para sumar las filas de `transcription_checkpoints` y `transcription_runs` de la sesión, de modo que el archivado solo ocurra con cero temporales, incluidos runs y checkpoints.
-
-### Garantías a preservar
-
-- Ante cualquier fallo se conservan audio, checkpoints, spans y run.
-- Tras aprobación confirmada, `temporaryRowCount == 0` y el diario permanente es idéntico al borrador aprobado.
-
-### Pruebas mínimas de Task 8
-
-- Un `TranscriptionRunEntity` y un `TranscriptionCheckpointEntity` sembrados sobreviven a un fallo de limpieza.
-- Tras una aprobación verificada desaparecen y el conteo llega a cero.
-
-Commit sugerido: `test: preserve Whisper data until verified approval`.
-
-Después del push, esperar GitHub Actions. Solo si queda verde, actualizar este archivo y `PHASE4_RECOVERY_STATUS.md`.
-
-## Secuencia posterior
+> Nota: Task 8 y Task 9 ya están implementadas y validadas (ver "Estado de la Fase 4"). Se conserva el detalle a continuación como registro histórico.
 
 ### Task 8: limpieza segura
 

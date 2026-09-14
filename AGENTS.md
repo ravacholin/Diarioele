@@ -13,8 +13,8 @@
 - Rama activa: `feature/phase4-whisper-recovery`
 - PR borrador: `#1`
 - Head documental al crear este archivo: `e079a9b47b09e4bd1e5de92e0378ddfa67ea2090`
-- Último código funcional validado: `5b60dd0f5d21cda21b173728ad3228467fbf4e14` (Task 7)
-- Última validación completa del código: GitHub Actions `#67`, run `34887686385`
+- Último código funcional validado: `a53b32145cb044b8539f05231031658c0ae2d6c6` (Tasks 7, 8 y 9)
+- Última validación completa del código: GitHub Actions `#74`, run `34889834345`
 
 Antes de trabajar, comprobar que estos datos no hayan sido superados por un checkpoint más reciente documentado en `PHASE4_HANDOFF.md`.
 
@@ -34,6 +34,10 @@ Antes de trabajar, comprobar que estos datos no hayan sido superados por un chec
 
 ## Próxima tarea
 
-Task 7 (UI observable sin descarga de idioma) está validada por GitHub Actions `#67`.
+Tasks 7, 8 y 9 están completas y validadas por GitHub Actions `#74` (`a53b321`):
 
-La próxima tarea es Task 8, limpieza segura de `transcription_runs` y `transcription_checkpoints`. La lista exacta, criterios y riesgos están en `PHASE4_HANDOFF.md`.
+- Task 7: UI observable conectada al planificador persistente, sin descarga de idioma.
+- Task 8: la limpieza temporal también borra y cuenta `transcription_runs` y `transcription_checkpoints`.
+- Task 9: motor de reconocimiento anterior eliminado, versión `0.4.0-whisper`, APK offline listo.
+
+La próxima tarea es la **prueba física en el Moto g max** siguiendo `PHASE4_WHISPER_DEVICE_TEST.md`. Ninguna CI verde reemplaza esa prueba, y el audio no se borra sin aprobación explícita del usuario.
