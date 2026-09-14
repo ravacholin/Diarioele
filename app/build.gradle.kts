@@ -16,6 +16,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }
+    androidResources { noCompress += "bin" }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
     testOptions {
@@ -27,6 +28,13 @@ android {
         }
     }
 }
+
+val prepareWhisperModel by tasks.registering(Exec::class) {
+    workingDir(rootDir)
+    commandLine("bash", "scripts/prepare-whisper-model.sh")
+}
+tasks.named("preBuild").configure { dependsOn(prepareWhisperModel) }
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
