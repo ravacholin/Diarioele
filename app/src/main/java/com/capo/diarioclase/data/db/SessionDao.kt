@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.Flow
  @Query("DELETE FROM transcript_spans WHERE audioSegmentId=:segmentId") suspend fun deleteTranscript(segmentId:String)
  @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun insertTranscript(spans:List<TranscriptSpanEntity>)
  @Query("SELECT transcript_spans.* FROM transcript_spans INNER JOIN audio_segments ON audio_segments.id=transcript_spans.audioSegmentId INNER JOIN blocks ON blocks.id=audio_segments.blockId WHERE blocks.sessionId=:sessionId ORDER BY blocks.ordinal,audio_segments.ordinal,transcript_spans.startMs") suspend fun transcript(sessionId:String):List<TranscriptSpanEntity>
+ @Query("SELECT * FROM transcript_spans WHERE audioSegmentId=:audioSegmentId ORDER BY startMs,endMs,id") suspend fun transcriptForSegment(audioSegmentId:String):List<TranscriptSpanEntity>
  @Query("DELETE FROM evidence_claims WHERE sessionId=:sessionId AND origin!='USER_EDIT'") suspend fun deleteMachineClaims(sessionId:String)
  @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun insertClaims(claims:List<EvidenceClaimEntity>)
  @Query("SELECT * FROM evidence_claims WHERE sessionId=:sessionId ORDER BY category,startMs") fun observeClaims(sessionId:String):Flow<List<EvidenceClaimEntity>>

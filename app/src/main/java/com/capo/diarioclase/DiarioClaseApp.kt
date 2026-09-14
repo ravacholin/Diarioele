@@ -14,6 +14,9 @@ import com.capo.diarioclase.processing.evidence.ClaimReducer
 import com.capo.diarioclase.processing.evidence.InterpretationProjector
 import com.capo.diarioclase.processing.evidence.LiteralClaimExtractor
 import com.capo.diarioclase.processing.transcription.AndroidOnDeviceTranscriptionEngine
+import com.capo.diarioclase.processing.transcription.WhisperModelInstaller
+import com.capo.diarioclase.processing.transcription.WhisperNativeBridge
+import com.capo.diarioclase.processing.transcription.WhisperTranscriptionEngine
 import com.capo.diarioclase.processing.work.RoomProcessingStore
 import com.capo.diarioclase.processing.work.TranscriptionCoordinator
 import com.capo.diarioclase.recording.audio.CleanupFileStore
@@ -34,6 +37,7 @@ class DiarioClaseApp : Application() {
     lateinit var processingStore: RoomProcessingStore
     lateinit var transcriptionCoordinator: TranscriptionCoordinator
     lateinit var transcriptionEngine: AndroidOnDeviceTranscriptionEngine
+    lateinit var whisperEngine: WhisperTranscriptionEngine
     lateinit var cleanupFiles: CleanupFileStore
     lateinit var cleanupCoordinator: CleanupCoordinator
 
@@ -69,7 +73,11 @@ class DiarioClaseApp : Application() {
         )
         processingStore = RoomProcessingStore(database, SystemClock)
         transcriptionEngine = AndroidOnDeviceTranscriptionEngine(this)
-        transcriptionCoordinator = TranscriptionCoordinator(processingStore, transcriptionEngine)
+        whisperEngine = WhisperTranscriptionEngine(
+            modelProvider = WhisperModelInstaller(this),
+            nativeRuntime = WhisperNativeBridge(),
+        )
+        transcriptionCoordinator = TranscriptionCoordinator(processingStore, whisperEngine)
         appScope.launch {
             database.sessions().recoverInterruptedTranscriptions()
             recovery.onAppStart()

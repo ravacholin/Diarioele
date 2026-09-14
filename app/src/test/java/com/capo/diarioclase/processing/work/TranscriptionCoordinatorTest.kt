@@ -1,44 +1,333 @@
 package com.capo.diarioclase.processing.work
 
-import com.capo.diarioclase.data.db.*
-import com.capo.diarioclase.processing.evidence.*
-import com.capo.diarioclase.processing.transcription.*
+import com.capo.diarioclase.data.db.BlockId
+import com.capo.diarioclase.data.db.DiaryDraftEntity
+import com.capo.diarioclase.data.db.SegmentId
+import com.capo.diarioclase.data.db.SegmentState
+import com.capo.diarioclase.data.db.SessionId
+import com.capo.diarioclase.data.db.SessionState
+import com.capo.diarioclase.data.db.TranscriptionCheckpointEntity
+import com.capo.diarioclase.data.db.TranscriptionRunEntity
+import com.capo.diarioclase.processing.evidence.DiaryDraft
+import com.capo.diarioclase.processing.evidence.EvidenceClaim
+import com.capo.diarioclase.processing.evidence.InterpretationMode
+import com.capo.diarioclase.processing.evidence.LiteralClaimExtractor
+import com.capo.diarioclase.processing.transcription.AudioWindow
+import com.capo.diarioclase.processing.transcription.TranscriptDeduplicator
+import com.capo.diarioclase.processing.transcription.TranscriptSpan
+import com.capo.diarioclase.processing.transcription.TranscriptionFailure
+import com.capo.diarioclase.processing.transcription.WindowTranscriptResult
+import com.capo.diarioclase.processing.transcription.WindowTranscriptionEngine
 import com.capo.diarioclase.recording.audio.ReadySegment
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TranscriptionCoordinatorTest {
- @Test fun `checkpoints every segment and creates five field draft`()=runTest{
-  val store=FakeStore();val engine=TranscriptionEngine{segment->TranscriptResult.Success(listOf(TranscriptSpan("t-${segment.id.value}",segment.id.value,segment.blockId,0,1000,if(segment.id.value=="a")"Vamos a la página cuarenta y dos" else "Hacemos el ejercicio tres",.9)))}
-  val result=TranscriptionCoordinator(store,engine,LiteralClaimExtractor{store.nextId()}).process(SessionId("day"),InterpretationMode.CONSERVATIVE)
-  assertTrue(result is ProcessingOutcome.Complete);assertEquals(listOf("a","b"),store.saved);assertEquals("42",store.draft?.pages);assertEquals("3 (p. 42)",store.draft?.exercises);assertEquals(SessionState.AWAITING_REVIEW,store.state)
- }
- @Test fun `failure stops later work and keeps previous checkpoint`()=runTest{
-  val store=FakeStore();var call=0;val engine=TranscriptionEngine{segment->if(call++==0)TranscriptResult.Success(listOf(TranscriptSpan("t",segment.id.value,segment.blockId,0,1000,"Página diez",.9)))else TranscriptResult.Failure(TranscriptionFailure.NO_SPEECH,true)}
-  val result=TranscriptionCoordinator(store,engine).process(SessionId("day"),InterpretationMode.CONSERVATIVE)
-  assertTrue(result is ProcessingOutcome.Failed);assertEquals(listOf("a"),store.saved);assertEquals(listOf("b"),store.failed)
- }
- @Test fun `user edit survives mode change` ()=runTest{
-  val store=FakeStore().apply{existingDraft=DiaryDraftEntity("draft","day",InterpretationMode.CONSERVATIVE.name,"Tema manual","Actividad manual","12","3","Tarea manual",1_000,true)}
-  val engine=TranscriptionEngine{segment->TranscriptResult.Success(listOf(TranscriptSpan("t-${segment.id.value}",segment.id.value,segment.blockId,0,1000,"Página diez",.9)))}
+    @Test
+    fun `checkpoints every window and creates five field draft`() = runTest {
+        val store = FakeStore()
+        val engine = RecordingWindowEngine { window ->
+            val text = if (window.segmentId.value == "a") {
+                "Vamos a la página cuarenta y dos"
+            } else {
+                "Hacemos el ejercicio tres"
+            }
+            WindowTranscriptResult.Success(listOf(span(window, text)))
+        }
 
-  val result=TranscriptionCoordinator(store,engine).process(SessionId("day"),InterpretationMode.EXHAUSTIVE)
+        val result = coordinator(store, engine).process(
+            SessionId("day"),
+            InterpretationMode.CONSERVATIVE,
+        )
 
-  val draft=(result as ProcessingOutcome.Complete).draft
-  assertEquals(InterpretationMode.EXHAUSTIVE,draft.mode);assertEquals("Tema manual",draft.topics);assertEquals("Actividad manual",draft.activities);assertEquals("12",draft.pages);assertEquals("3",draft.exercises);assertEquals("Tarea manual",draft.homework)
- }
+        assertTrue(result is ProcessingOutcome.Complete)
+        assertEquals(listOf("a", "b"), store.completedSegments)
+        assertEquals("42", store.generatedDraft?.pages)
+        assertEquals("3 (p. 42)", store.generatedDraft?.exercises)
+        assertEquals(SessionState.AWAITING_REVIEW, store.state)
+        assertEquals(TranscriptionRunState.COMPLETED.name, store.savedRun?.state)
+    }
+
+    @Test
+    fun `confirmed window is not transcribed twice after restart`() = runTest {
+        val store = FakeStore(durations = linkedMapOf("a" to 65_000L))
+        store.savedRun = runEntity(processedMs = 28_000, totalMs = 65_000)
+        store.savedCheckpoints["a"] = checkpoint(
+            segment = "a",
+            confirmedUntilMs = 28_000,
+            processedWindows = 1,
+            totalWindows = 3,
+            totalMs = 65_000,
+        )
+        val engine = RecordingWindowEngine {
+            WindowTranscriptResult.Success(listOf(span(it, "Ejercicio tres")))
+        }
+
+        val outcome = coordinator(store, engine).processNext(
+            SessionId("day"),
+            InterpretationMode.CONSERVATIVE,
+        )
+
+        assertEquals(28_000, engine.received.single().startMs)
+        assertTrue(outcome is ProcessingStepOutcome.WindowSaved)
+        assertEquals(56_000, store.savedCheckpoints.getValue("a").confirmedUntilMs)
+    }
+
+    @Test
+    fun `window failure preserves prior transcript and checkpoint`() = runTest {
+        val store = FakeStore(durations = linkedMapOf("a" to 65_000L))
+        val prior = TranscriptSpan("prior", "a", BlockId("block"), 0, 28_000, "Página doce", .9)
+        store.persistedSpans += prior
+        store.savedRun = runEntity(processedMs = 28_000, totalMs = 65_000)
+        store.savedCheckpoints["a"] = checkpoint(
+            segment = "a",
+            confirmedUntilMs = 28_000,
+            processedWindows = 1,
+            totalWindows = 3,
+            totalMs = 65_000,
+        )
+        val engine = RecordingWindowEngine {
+            WindowTranscriptResult.Failure(TranscriptionFailure.TIMEOUT, retryable = true)
+        }
+
+        val outcome = coordinator(store, engine).processNext(
+            SessionId("day"),
+            InterpretationMode.CONSERVATIVE,
+        )
+
+        assertTrue(outcome is ProcessingStepOutcome.Failed)
+        assertEquals(listOf(prior), store.persistedSpans)
+        assertEquals(28_000, store.savedCheckpoints.getValue("a").confirmedUntilMs)
+        assertEquals(TranscriptionFailure.TIMEOUT.name, store.savedRun?.failure)
+    }
+
+    @Test
+    fun `durable pause stops before reading or transcribing another window`() = runTest {
+        val store = FakeStore(durations = linkedMapOf("a" to 65_000L))
+        store.savedRun = runEntity(
+            processedMs = 28_000,
+            totalMs = 65_000,
+            pauseRequested = true,
+        )
+        val engine = RecordingWindowEngine {
+            WindowTranscriptResult.Success(emptyList())
+        }
+
+        val outcome = coordinator(store, engine).processNext(
+            SessionId("day"),
+            InterpretationMode.CONSERVATIVE,
+        )
+
+        assertTrue(outcome is ProcessingStepOutcome.Paused)
+        assertTrue(engine.received.isEmpty())
+        assertEquals(TranscriptionRunState.PAUSED.name, store.savedRun?.state)
+    }
+
+    @Test
+    fun `user edit survives mode change`() = runTest {
+        val store = FakeStore().apply {
+            existingDraft = DiaryDraftEntity(
+                "draft",
+                "day",
+                InterpretationMode.CONSERVATIVE.name,
+                "Tema manual",
+                "Actividad manual",
+                "12",
+                "3",
+                "Tarea manual",
+                1_000,
+                true,
+            )
+        }
+        val engine = RecordingWindowEngine {
+            WindowTranscriptResult.Success(listOf(span(it, "Página diez")))
+        }
+
+        val result = coordinator(store, engine).process(
+            SessionId("day"),
+            InterpretationMode.EXHAUSTIVE,
+        )
+
+        val draft = (result as ProcessingOutcome.Complete).draft
+        assertEquals(InterpretationMode.EXHAUSTIVE, draft.mode)
+        assertEquals("Tema manual", draft.topics)
+        assertEquals("Actividad manual", draft.activities)
+        assertEquals("12", draft.pages)
+        assertEquals("3", draft.exercises)
+        assertEquals("Tarea manual", draft.homework)
+    }
+
+    private fun coordinator(
+        store: FakeStore,
+        engine: WindowTranscriptionEngine,
+    ) = TranscriptionCoordinator(
+        store = store,
+        engine = engine,
+        extractor = LiteralClaimExtractor { store.nextId() },
+        pcmReader = { _, plan ->
+            FloatArray(((plan.endMs - plan.startMs) * 16).toInt())
+        },
+    )
+
+    private fun span(window: AudioWindow, text: String) = TranscriptSpan(
+        id = "span-" + text.hashCode() + "-" + window.startMs,
+        audioSegmentId = window.segmentId.value,
+        blockId = window.blockId,
+        startMs = window.startMs,
+        endMs = window.endMs,
+        text = text,
+        confidence = .9,
+    )
+
+    private fun runEntity(
+        processedMs: Long,
+        totalMs: Long,
+        pauseRequested: Boolean = false,
+    ) = TranscriptionRunEntity(
+        sessionId = "day",
+        state = TranscriptionRunState.PROCESSING.name,
+        pauseRequested = pauseRequested,
+        processedMs = processedMs,
+        totalMs = totalMs,
+        currentSegmentId = "a",
+        failure = null,
+        updatedAtEpochMs = 1,
+    )
+
+    private fun checkpoint(
+        segment: String,
+        confirmedUntilMs: Long,
+        processedWindows: Int,
+        totalWindows: Int,
+        totalMs: Long,
+    ) = TranscriptionCheckpointEntity(
+        audioSegmentId = segment,
+        sessionId = "day",
+        confirmedUntilMs = confirmedUntilMs,
+        totalMs = totalMs,
+        processedWindows = processedWindows,
+        totalWindows = totalWindows,
+        state = TranscriptionRunState.PROCESSING.name,
+        failure = null,
+        updatedAtEpochMs = 1,
+    )
 }
-private class FakeStore:ProcessingStore{
- var state=SessionState.FINALIZED;var counter=0;val saved=mutableListOf<String>();val failed=mutableListOf<String>();var spans=mutableListOf<TranscriptSpan>();var draft:DiaryDraft?=null;var existingDraft:DiaryDraftEntity?=null
- fun nextId()="claim-${counter++}"
- override suspend fun sessionState(id:SessionId)=state
- override suspend fun segments(id:SessionId)=listOf("a","b").mapIndexed{i,name->ProcessableSegment(ReadySegment(SegmentId(name),BlockId("block"),"/$name.wav",1000,"hash"),i,if(name in saved)SegmentState.TRANSCRIBED else SegmentState.READY)}
- override suspend fun markTranscribing(id:SegmentId)=Unit
- override suspend fun saveTranscript(id:SegmentId,spans:List<TranscriptSpan>){saved+=id.value;this.spans+=spans}
- override suspend fun markFailed(id:SegmentId,failure:TranscriptionFailure){failed+=id.value}
- override suspend fun transcript(id:SessionId)=spans
- override suspend fun draft(id:SessionId)=existingDraft
- override suspend fun saveEvidence(id:SessionId,claims:List<EvidenceClaim>,draft:DiaryDraft){this.draft=draft}
- override suspend fun updateSession(id:SessionId,state:SessionState){this.state=state}
+
+private class RecordingWindowEngine(
+    private val answer: (AudioWindow) -> WindowTranscriptResult,
+) : WindowTranscriptionEngine {
+    val received = mutableListOf<AudioWindow>()
+
+    override suspend fun transcribe(window: AudioWindow): WindowTranscriptResult {
+        received += window
+        return answer(window)
+    }
+}
+
+private class FakeStore(
+    private val durations: LinkedHashMap<String, Long> =
+        linkedMapOf("a" to 1_000L, "b" to 1_000L),
+) : ProcessingStore {
+    var state = SessionState.FINALIZED
+    var counter = 0
+    val completedSegments = mutableListOf<String>()
+    val failedSegments = mutableListOf<String>()
+    val persistedSpans = mutableListOf<TranscriptSpan>()
+    val savedCheckpoints = linkedMapOf<String, TranscriptionCheckpointEntity>()
+    val segmentStates = durations.keys.associateWith { SegmentState.READY }.toMutableMap()
+    var savedRun: TranscriptionRunEntity? = null
+    var generatedDraft: DiaryDraft? = null
+    var existingDraft: DiaryDraftEntity? = null
+
+    fun nextId() = "claim-" + counter++
+
+    override suspend fun sessionState(id: SessionId) = state
+
+    override suspend fun segments(id: SessionId) =
+        durations.entries.mapIndexed { index, entry ->
+            ProcessableSegment(
+                ReadySegment(
+                    SegmentId(entry.key),
+                    BlockId("block"),
+                    "/" + entry.key + ".wav",
+                    entry.value,
+                    "hash",
+                ),
+                index,
+                segmentStates.getValue(entry.key),
+            )
+        }
+
+    override suspend fun run(id: SessionId) = savedRun
+
+    override suspend fun checkpoint(id: SegmentId) = savedCheckpoints[id.value]
+
+    override suspend fun checkpoints(id: SessionId) = savedCheckpoints.values.toList()
+
+    override suspend fun saveRun(run: TranscriptionRunEntity) {
+        savedRun = run
+    }
+
+    override suspend fun markTranscribing(id: SegmentId) {
+        segmentStates[id.value] = SegmentState.TRANSCRIBING
+    }
+
+    override suspend fun confirmWindow(
+        segmentId: SegmentId,
+        spans: List<TranscriptSpan>,
+        checkpoint: TranscriptionCheckpointEntity,
+        run: TranscriptionRunEntity,
+        segmentComplete: Boolean,
+    ): TranscriptionRunEntity {
+        val existing = persistedSpans.filter { it.audioSegmentId == segmentId.value }
+        persistedSpans.removeAll(existing.toSet())
+        persistedSpans += TranscriptDeduplicator.merge(existing, spans)
+        savedCheckpoints[segmentId.value] = checkpoint
+        val processedMs = savedCheckpoints.values.sumOf { it.confirmedUntilMs }
+        val updatedRun = run.copy(processedMs = processedMs)
+        savedRun = updatedRun
+        if (segmentComplete) {
+            segmentStates[segmentId.value] = SegmentState.TRANSCRIBED
+            completedSegments += segmentId.value
+        }
+        return updatedRun
+    }
+
+    override suspend fun recordWindowFailure(
+        segmentId: SegmentId,
+        checkpoint: TranscriptionCheckpointEntity,
+        run: TranscriptionRunEntity,
+        failure: TranscriptionFailure,
+    ) {
+        savedCheckpoints[segmentId.value] = checkpoint.copy(
+            state = TranscriptionRunState.FAILED.name,
+            failure = failure.name,
+        )
+        savedRun = run.copy(
+            state = TranscriptionRunState.FAILED.name,
+            failure = failure.name,
+        )
+        segmentStates[segmentId.value] = SegmentState.FAILED
+        failedSegments += segmentId.value
+    }
+
+    override suspend fun transcript(id: SessionId) =
+        persistedSpans.sortedWith(compareBy({ it.audioSegmentId }, { it.startMs }))
+
+    override suspend fun draft(id: SessionId) = existingDraft
+
+    override suspend fun saveEvidence(
+        id: SessionId,
+        claims: List<EvidenceClaim>,
+        draft: DiaryDraft,
+    ) {
+        generatedDraft = draft
+    }
+
+    override suspend fun updateSession(id: SessionId, state: SessionState) {
+        this.state = state
+    }
 }
