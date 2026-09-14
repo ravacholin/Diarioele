@@ -440,11 +440,11 @@ OpenAiCompatibleProfile(
 )
 ```
 
-Groq usa `response_format.type = json_schema`, `strict = true`. OpenRouter pide JSON por prompt y, cuando sea admitido, `response_format.type = json_object`; la validación local sigue siendo obligatoria.
+Groq usa `response_format.type = json_schema`, `strict = true`. OpenRouter pide JSON por prompt y, cuando sea admitido, `response_format.type = json_object`; además envía `provider.data_collection = "deny"` y precio máximo cero cuando la API lo admita. Si la cuenta permite gasto sin límite verificable, devolver `BILLING_RISK`. La validación local sigue siendo obligatoria.
 
 - [ ] **Step 7: Mapear errores uniformemente**
 
-401/403 a `AUTHENTICATION`; 429 a `QUOTA`; 500/503 a `SERVER_UNAVAILABLE`; timeout a `TIMEOUT`; cuerpo vacío a `EMPTY_RESPONSE`. Leer `Retry-After` sin superar 5 segundos. Ningún error incluye request body ni credencial.
+401/403 a `AUTHENTICATION`; 402 a `BILLING_RISK`; 429 a `QUOTA`; 500/502/503/504 a `SERVER_UNAVAILABLE`; timeout/408 a `TIMEOUT`; cuerpo vacío a `EMPTY_RESPONSE`; 400/404/422 a respuesta o capacidad no admitida y fallback limpio. Leer `Retry-After` sin superar 5 segundos. Solo HTTPS y hosts exactos del catálogo; redirects desactivados; request, response y output tokens acotados. Ningún error incluye request body, headers ni credencial.
 
 - [ ] **Step 8: Ejecutar pruebas con transporte falso**
 
@@ -497,7 +497,7 @@ sealed interface ValidationOutcome {
 }
 ```
 
-Construir `EvidenceRef` desde spans locales y asignar origen según proveedor. Nunca aceptar evidencia textual devuelta por el modelo.
+Construir `List<EvidenceRef>` desde spans locales y asignar origen según proveedor. Conservar `claimKey` y `supersedesClaimKeys`; rechazar referencias inexistentes, duplicadas, cíclicas, autorreferentes o fuera de alcance. Conservar `ClaimOrigin.SEMANTIC` como legacy o migrarlo explícitamente para no romper filas existentes. Nunca aceptar evidencia textual devuelta por el modelo.
 
 - [ ] **Step 4: Escribir pruebas del reductor**
 
@@ -505,11 +505,11 @@ Cubrir solapamiento, misma página repetida, ejercicio corregido, ejercicio movi
 
 - [ ] **Step 5: Implementar reducción**
 
-Procesar claims por bloque y tiempo. Conservar reemplazados inactivos, afectar solo el elemento referido y usar `UNCERTAIN` cuando haya dos antecedentes posibles.
+Procesar claims conservando bloque, ordinal de segmento y orden de entrada; nunca reordenar solo por `startMs`. Conservar reemplazados inactivos, afectar solo el elemento referido y usar `UNCERTAIN` cuando haya dos antecedentes posibles.
 
 - [ ] **Step 6: Verificar modos locales**
 
-Proyectar los mismos claims en `CONSERVATIVE`, `BALANCED` y `EXHAUSTIVE` sin usar clientes.
+Aplicar primero estado→campo: `PERFORMED` a campos de clase, `ASSIGNED` a Tarea, `UNCERTAIN` siempre a confirmación, y `PROPOSED`/`CANCELLED`/`CORRECTED` como historial inactivo. Después proyectar los mismos claims en `CONSERVATIVE`, `BALANCED` y `EXHAUSTIVE` sin usar clientes.
 
 - [ ] **Step 7: Ejecutar pruebas**
 
@@ -533,6 +533,9 @@ git commit -m "feat: validate multi-provider claims with local evidence"
 ### Task 6: Caché por paquete y proveedor
 
 **Files:**
+- Modify: `app/src/main/java/com/capo/diarioclase/data/db/Entities.kt`
+- Modify: `app/src/main/java/com/capo/diarioclase/data/db/SessionDao.kt`
+- Modify: `app/src/main/java/com/capo/diarioclase/data/db/DiarioDatabase.kt`
 - Create: `app/src/main/java/com/capo/diarioclase/processing/semantic/RoomInterpretationCache.kt`
 - Create: `app/src/test/java/com/capo/diarioclase/processing/semantic/RoomInterpretationCacheTest.kt`
 - Modify: `app/src/test/java/com/capo/diarioclase/FullJourneyTest.kt`
@@ -752,13 +755,10 @@ git commit -m "feat: expose free inference fallback chain"
 ### Task 9: Validación integral, release y APK
 
 **Files:**
-- Modify: `app/src/main/java/com/capo/diarioclase/data/db/Entities.kt`
-- Modify: `app/src/main/java/com/capo/diarioclase/data/db/SessionDao.kt`
-- Modify: `app/src/main/java/com/capo/diarioclase/data/db/DiarioDatabase.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/AndroidCaptureActions.kt`
 - Modify: `app/src/test/java/com/capo/diarioclase/FullJourneyTest.kt`
 - Create: `PHASE5_FREE_INFERENCE_DEVICE_TEST.md`
-- Create: `PHASE5_HANDOFF.md`
+- Modify: `PHASE5_HANDOFF.md`
 - Modify: `AGENTS.md`
 - Modify: `app/build.gradle.kts`
 
@@ -795,7 +795,7 @@ Cambiar `versionCode` de 6 a 7 y `versionName` a `0.5.0-free-router`.
 Run:
 
 ```bash
-./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --max-workers=2 -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
+./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest lintRelease assembleRelease --max-workers=2 -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
 ```
 
 Expected: exit 0.
@@ -805,12 +805,12 @@ Expected: exit 0.
 Run:
 
 ```bash
-unzip -l app/build/outputs/apk/debug/app-debug.apk | rg 'ggml-base.bin|lib/arm64-v8a/libdiarioclase_whisper.so'
-apkanalyzer manifest permissions app/build/outputs/apk/debug/app-debug.apk | rg 'android.permission.INTERNET|android.permission.ACCESS_NETWORK_STATE'
+unzip -l app/build/outputs/apk/release/app-release.apk | rg 'ggml-base.bin|lib/arm64-v8a/libdiarioclase_whisper.so'
+apkanalyzer manifest permissions app/build/outputs/apk/release/app-release.apk | rg 'android.permission.INTERNET|android.permission.ACCESS_NETWORK_STATE'
 rg -n --hidden --glob '!build/**' --glob '!.git/**' 'AIza|gsk_|sk-or-v1-' .
 ```
 
-Expected: modelo y biblioteca presentes; dos permisos de red presentes; ninguna credencial real encontrada.
+Expected: modelo y biblioteca presentes; permisos de red previstos; build release no depurable; simuladores debug ausentes; ninguna credencial real encontrada. La firma release se inyecta mediante secreto de CI o keystore local aprobado y nunca se guarda en GitHub.
 
 - [ ] **Step 6: Actualizar continuidad**
 
@@ -827,7 +827,7 @@ Esperar GitHub Actions verde antes de entregar el APK.
 
 - [ ] **Step 8: Cierre empírico**
 
-Instalar el APK exacto de la CI en Moto g max y completar el protocolo. Cada fallo semántico se convierte en un escenario sintético mínimo; no se exige audio ni corpus.
+Instalar el APK release firmado exacto en Moto g max y completar el protocolo. Cada fallo semántico se convierte en un escenario sintético mínimo; no se exige audio ni corpus.
 
 ## Límites conscientes
 
