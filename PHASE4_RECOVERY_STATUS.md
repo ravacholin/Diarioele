@@ -12,8 +12,9 @@ Incorporar transcripción local, privada y gratuita en español rioplatense. El 
 - Rama de trabajo: `feature/phase4-whisper-recovery`
 - PR borrador: [#1](https://github.com/ravacholin/Diarioele/pull/1)
 - Base inicial: `main@35c45a1`
-- Último checkpoint funcional validado: `5b24221`
-- Última validación completa: GitHub Actions `#37`, exitosa
+- Último checkpoint funcional validado: `47ab1b9`
+- Licencia incorporada: `df70e7e`
+- Última validación completa: GitHub Actions `#41`, exitosa
 
 No debe quedar trabajo terminado únicamente en un entorno temporal. Cada bloque funcional se confirma en esta rama y se valida con GitHub Actions antes de continuar.
 
@@ -25,7 +26,7 @@ No debe quedar trabajo terminado únicamente en un entorno temporal. Cada bloque
 | Modelo español local | Recuperado y validado | `ec499a2`, workflow #29 |
 | Ventanas WAV y deduplicación temporal | Recuperado y validado | `3e6291e`, workflow #33 |
 | Checkpoints Room y migración 3→4 | Recuperado y validado | `5b24221`, workflow #37 |
-| Motor nativo whisper.cpp | Pendiente de reconstrucción | |
+| Motor nativo whisper.cpp ARM64 | Recuperado y validado en compilación | `47ab1b9`, workflow #41 |
 | Coordinador reanudable por ventana | Pendiente de reconstrucción | |
 | Extracción conservadora de la ficha | Pendiente de reconstrucción | |
 | Pantallas de progreso, error y revisión | Pendiente de reconstrucción | |
@@ -39,6 +40,15 @@ No debe quedar trabajo terminado únicamente en un entorno temporal. Cada bloque
 - Eliminar un audio elimina su checkpoint huérfano por cascada.
 - Migrar una instalación existente conserva sesiones y borradores previos.
 - Los fallos y cierres no borran audio ni resultados confirmados.
+- El modelo se instala en almacenamiento privado no respaldable y se valida por tamaño y SHA-256.
+- Whisper queda fijado a español, sin traducción ni detección automática.
+- El APK no solicita permiso de Internet y transcribe localmente.
+- La biblioteca nativa se compila solo para `arm64-v8a`.
+- La licencia MIT de whisper.cpp se incluye dentro del APK.
+
+## Fuente nativa reproducible
+
+Durante la compilación, CMake obtiene `whisper.cpp` desde su repositorio oficial y lo fija al commit `927cfce34f31707e17f2bff35c349632fb9e2c3a`, correspondiente a v1.9.4. Esto evita guardar miles de archivos generados en este repositorio. La red se usa al construir el APK, nunca durante la transcripción en el teléfono.
 
 ## Reglas de continuidad
 
