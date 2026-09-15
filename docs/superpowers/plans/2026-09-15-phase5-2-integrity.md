@@ -102,7 +102,7 @@ git commit -m "docs: establish phase 5.2 integration baseline"
 
 **Interfaces:**
 - Consumes: `InterpretationRequest.packetId`, `InferenceProvider`, `providerClaimKey`.
-- Produces: `ClaimIdentity.id(runId, packetId, provider, providerClaimKey): String`, `InterpretationRunState`, `InterpretationPacketState`, `InterpretationFailure`, and expanded claim metadata.
+- Produces: `ClaimIdentity.id(runId, packetId, provider, providerClaimKey): String`, `InterpretationPacket(request, sourceSpanIds)`, `InterpretationRunState`, `InterpretationPacketState`, `InterpretationFailure`, and expanded claim metadata.
 
 - [ ] **Step 1: Write failing identity tests**
 
@@ -161,7 +161,22 @@ enum class InterpretationFailure {
 }
 ```
 
-Expand `RawClaim` and `EvidenceClaim` with defaults for `runId`, `packetId`, `providerClaimKey`, `declaredConfidence` and `effectiveConfidence`. Preserve source compatibility.
+Add a local wrapper that is never serialized by provider clients:
+
+```kotlin
+data class InterpretationPacket(
+    val request: InterpretationRequest,
+    val sourceSpanIds: Map<String, String>,
+) {
+    init {
+        require(request.spans.map { it.publicId }.toSet() == sourceSpanIds.keys)
+    }
+}
+```
+
+`InterpretationPacketBuilder.build` returns these wrappers. Provider clients receive only `packet.request`; validators and persistence receive the wrapper so every public evidence id can be mapped back to a real `transcriptSpanId`.
+
+Expand `RawClaim` and `EvidenceClaim` with defaults for `runId`, `packetId`, `providerClaimKey`, `declaredConfidence`, `effectiveConfidence`, and local evidence span ids. Preserve source compatibility.
 
 - [ ] **Step 4: Run contract tests**
 
@@ -191,7 +206,7 @@ git commit -m "feat: define global claim and interpretation state contracts"
 
 **Interfaces:**
 - Consumes: transcript order from `SessionDao.transcript`.
-- Produces: packets whose spans preserve block→segment→span order and whose rendered request fits `maxRequestBytes`.
+- Produces: `InterpretationPacket` values whose public requests preserve block→segment→span order, whose private bindings map every public id to a local transcript span, and whose rendered request fits `maxRequestBytes`.
 
 - [ ] **Step 1: Write the chronology regression**
 
@@ -439,11 +454,12 @@ git commit -m "feat: persist semantic runs claims and evidence"
 
 **Files:**
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/FreeInferenceRouter.kt`
+- Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/InferenceHttpTransport.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/ProviderRetryPolicy.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/RouterSemanticInterpreter.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/work/TranscriptionWorker.kt`
 - Test: `app/src/test/java/com/capo/diarioclase/processing/semantic/FreeInferenceRouterTest.kt`
-- Test: `app/src/test/java/com/capo/diarioclase/processing/work/TranscriptionWorkerTest.kt`
+- Create: `app/src/test/java/com/capo/diarioclase/processing/work/TranscriptionWorkerTest.kt`
 
 **Interfaces:**
 - Consumes: `InterpretationJournal` from I4, or an in-memory fake during branch development.
@@ -486,6 +502,14 @@ val interpretationResult = withTimeoutOrNull(SEMANTIC_SESSION_TIMEOUT_MS) {
 ```
 
 Never call `failCurrent` for an interpretation failure.
+
+Make the HTTP transport cooperatively cancellable. Hold the active `HttpsURLConnection` inside `suspendCancellableCoroutine`, run blocking I/O on `Dispatchers.IO`, and register:
+
+```kotlin
+continuation.invokeOnCancellation { connection.disconnect() }
+```
+
+A cancellation test uses a fake blocking connection and asserts `disconnect()` is called within 1 s.
 
 - [ ] **Step 4: Run runtime and regression tests**
 
