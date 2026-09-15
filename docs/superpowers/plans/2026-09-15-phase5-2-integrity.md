@@ -436,7 +436,7 @@ Run:
 
 ```bash
 ./gradlew testDebugUnitTest --tests '*RoomInterpretationJournalTest'
-./gradlew connectedDebugAndroidTest --tests '*DiarioMigrationTest'
+./gradlew testDebugUnitTest --tests '*DiarioMigrationTest'
 ```
 
 Expected: PASS.
