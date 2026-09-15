@@ -60,6 +60,21 @@ import kotlinx.coroutines.flow.Flow
  @Query("SELECT * FROM interpretation_cache WHERE sessionId=:sessionId AND packetId=:packetId") suspend fun interpretationCache(sessionId:String,packetId:String):List<InterpretationCacheEntity>
  @Query("DELETE FROM interpretation_cache WHERE sessionId=:sessionId") suspend fun deleteInterpretationCacheForSession(sessionId:String)
  @Query("SELECT COUNT(*) FROM interpretation_cache WHERE sessionId=:sessionId") suspend fun interpretationCacheCount(sessionId:String):Int
+ @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun saveInterpretationRun(run:InterpretationRunEntity)
+ @Query("SELECT * FROM interpretation_runs WHERE id=:runId LIMIT 1") suspend fun interpretationRun(runId:String):InterpretationRunEntity?
+ @Query("UPDATE interpretation_runs SET state=:state,failure=:failure,completedAtEpochMs=:completedAt WHERE id=:runId") suspend fun updateInterpretationRun(runId:String,state:String,failure:String?,completedAt:Long?):Int
+ @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun saveInterpretationPacket(packet:InterpretationPacketEntity)
+ @Query("UPDATE interpretation_packets SET state=:state,provider=:provider,completedAtEpochMs=:completedAt WHERE runId=:runId AND packetId=:packetId") suspend fun updateInterpretationPacket(runId:String,packetId:String,state:String,provider:String?,completedAt:Long?):Int
+ @Query("SELECT * FROM interpretation_packets WHERE runId=:runId ORDER BY ordinal") suspend fun interpretationPackets(runId:String):List<InterpretationPacketEntity>
+ @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun saveProviderAttempt(attempt:ProviderAttemptEntity)
+ @Query("SELECT * FROM provider_attempts WHERE runId=:runId AND packetId=:packetId ORDER BY attempt") suspend fun providerAttempts(runId:String,packetId:String):List<ProviderAttemptEntity>
+ @Query("DELETE FROM claim_evidence WHERE claimId=:claimId") suspend fun deleteClaimEvidence(claimId:String)
+ @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun insertClaimEvidence(rows:List<ClaimEvidenceEntity>)
+ @Query("SELECT * FROM claim_evidence WHERE claimId=:claimId ORDER BY ordinal") suspend fun claimEvidence(claimId:String):List<ClaimEvidenceEntity>
+ @Query("DELETE FROM claim_supersessions WHERE newClaimId=:claimId") suspend fun deleteClaimSupersessions(claimId:String)
+ @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun insertClaimSupersessions(rows:List<ClaimSupersessionEntity>)
+ @Query("SELECT oldClaimId FROM claim_supersessions WHERE newClaimId=:claimId ORDER BY oldClaimId") suspend fun claimSupersessions(claimId:String):List<String>
+ @Query("SELECT * FROM evidence_claims WHERE runId=:runId ORDER BY claimOrdinal,id") suspend fun claimsForRun(runId:String):List<EvidenceClaimEntity>
  @Query("UPDATE sessions SET state=:state,updatedAtEpochMs=:nowEpochMs WHERE id=:sessionId") suspend fun updateSessionStateUnchecked(sessionId:String,state:String,nowEpochMs:Long)
  @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun saveSetting(setting:AppSettingEntity)
  @Query("SELECT COALESCE((SELECT value FROM app_settings WHERE key='interpretation_mode' LIMIT 1),'CONSERVATIVE')") fun observeInterpretationMode():Flow<String>

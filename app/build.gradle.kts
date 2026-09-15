@@ -41,6 +41,10 @@ android {
     }
 }
 
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 val prepareWhisperModel by tasks.registering(Exec::class) {
     workingDir(rootDir)
     commandLine("bash", "scripts/prepare-whisper-model.sh")
