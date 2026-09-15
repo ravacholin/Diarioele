@@ -56,7 +56,7 @@ class SemanticResponseValidator(
 
             val evidenceSpans = claim.evidenceSpanIds.map { spanId ->
                 spanById[spanId] ?: return invalid(ValidationFailure.UNKNOWN_EVIDENCE)
-            }
+            }.sortedWith(SpanOrder)
             if (evidenceSpans.none { !it.contextOnly }) {
                 return invalid(ValidationFailure.CONTEXT_ONLY_EVIDENCE)
             }
@@ -71,7 +71,16 @@ class SemanticResponseValidator(
             }
 
             val evidences = evidenceSpans.map { span ->
-                EvidenceRef(blockIdOf(span), span.startMs, span.endMs, span.text)
+                EvidenceRef(
+                    blockId = blockIdOf(span),
+                    startMs = span.startMs,
+                    endMs = span.endMs,
+                    excerpt = span.text,
+                    blockOrdinal = span.blockOrdinal,
+                    audioSegmentOrdinal = span.audioSegmentOrdinal,
+                    spanOrdinal = span.spanOrdinal,
+                    contextual = span.contextOnly,
+                )
             }
             result += RawClaim(
                 id = claim.claimKey,

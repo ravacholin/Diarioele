@@ -34,7 +34,7 @@ class PagesAndExercisesComposer {
         var currentPage: PageLine? = null
         var currentOrphans: OrphanLine? = null
 
-        claims.forEach { claim ->
+        orderedByEvidence(claims).forEach { claim ->
             val block = claim.evidences.firstOrNull()?.blockId?.value ?: claim.evidence.blockId.value
             if (block != currentBlock) {
                 currentBlock = block
@@ -69,6 +69,30 @@ class PagesAndExercisesComposer {
 
         return lines.joinToString("\n") { it.render() }.trim()
     }
+
+    private fun orderedByEvidence(claims: List<EvidenceClaim>): List<EvidenceClaim> {
+        val fallbackBlockOrder = LinkedHashMap<String, Int>()
+        claims.forEach { claim ->
+            val block = primaryEvidence(claim).blockId.value
+            fallbackBlockOrder.getOrPut(block) { fallbackBlockOrder.size + 1 }
+        }
+        return claims.withIndex()
+            .sortedWith(
+                compareBy<IndexedValue<EvidenceClaim>>(
+                    { indexed ->
+                        val evidence = primaryEvidence(indexed.value)
+                        evidence.blockOrdinal ?: fallbackBlockOrder.getValue(evidence.blockId.value)
+                    },
+                    { primaryEvidence(it.value).audioSegmentOrdinal ?: Int.MAX_VALUE },
+                    { primaryEvidence(it.value).spanOrdinal ?: Int.MAX_VALUE },
+                    { it.index },
+                ),
+            )
+            .map { it.value }
+    }
+
+    private fun primaryEvidence(claim: EvidenceClaim): EvidenceRef =
+        claim.evidences.firstOrNull { !it.contextual } ?: claim.evidence
 
     private fun pageLabel(claim: EvidenceClaim): String {
         val source = claim.normalizedValue.ifBlank { claim.value }
