@@ -102,7 +102,7 @@ git commit -m "docs: establish phase 5.2 integration baseline"
 
 **Interfaces:**
 - Consumes: `InterpretationRequest.packetId`, `InferenceProvider`, `providerClaimKey`.
-- Produces: `ClaimIdentity.id(runId, packetId, provider, providerClaimKey): String`, `InterpretationPacket(request, sourceSpanIds)`, `InterpretationRunState`, `InterpretationPacketState`, `InterpretationFailure`, and expanded claim metadata.
+- Produces: `ClaimIdentity.id(runId, packetId, provider, providerClaimKey): String`, `InterpretationPacket(request, sourceSpanIds)`, `InterpretationRunState`, `InterpretationPacketState`, `InterpretationFailure`, and expanded claim metadata including `claimOrdinal`.
 
 - [ ] **Step 1: Write failing identity tests**
 
@@ -169,14 +169,17 @@ data class InterpretationPacket(
     val sourceSpanIds: Map<String, String>,
 ) {
     init {
-        require(request.spans.map { it.publicId }.toSet() == sourceSpanIds.keys)
+        val publicIds = request.spans.map { it.publicId }
+        require(publicIds.size == publicIds.toSet().size)
+        require(publicIds.toSet() == sourceSpanIds.keys)
+        require(sourceSpanIds.values.all { it.isNotBlank() })
     }
 }
 ```
 
-`InterpretationPacketBuilder.build` returns these wrappers. Provider clients receive only `packet.request`; validators and persistence receive the wrapper so every public evidence id can be mapped back to a real `transcriptSpanId`.
+I1 congela el wrapper sin cambiar todavía la firma del builder. I2 hace que `InterpretationPacketBuilder.build` devuelva estos wrappers y adapta sus consumidores. Los clientes de proveedor reciben solo `packet.request`; validadores y persistencia reciben el wrapper para mapear cada id público a un `transcriptSpanId` real.
 
-Expand `RawClaim` and `EvidenceClaim` with defaults for `runId`, `packetId`, `providerClaimKey`, `declaredConfidence`, `effectiveConfidence`, and local evidence span ids. Preserve source compatibility.
+Expand `RawClaim` and `EvidenceClaim` with defaults for `runId`, `packetId`, `providerClaimKey`, `declaredConfidence`, `effectiveConfidence`, local evidence span ids, and `claimOrdinal`. Preserve source compatibility and copy the metadata through both reducers.
 
 - [ ] **Step 4: Run contract tests**
 
@@ -493,8 +496,10 @@ git commit -m "feat: persist semantic runs claims and evidence"
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/InferenceHttpTransport.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/ProviderRetryPolicy.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/RouterSemanticInterpreter.kt`
+- Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/SemanticResponseValidator.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/work/TranscriptionWorker.kt`
 - Test: `app/src/test/java/com/capo/diarioclase/processing/semantic/FreeInferenceRouterTest.kt`
+- Modify: `app/src/test/java/com/capo/diarioclase/processing/semantic/SemanticResponseValidatorTest.kt`
 - Create: `app/src/test/java/com/capo/diarioclase/processing/work/TranscriptionWorkerTest.kt`
 
 **Interfaces:**
@@ -527,6 +532,8 @@ Expected: FAIL on missing budget and semantic outcomes.
 - [ ] **Step 3: Implement bounded routing**
 
 Wrap packet and session work with cooperative `withTimeoutOrNull`. Track two consecutive transient failures per provider and open its execution circuit. Honor `retryAfterMs` only when it fits the remaining budget.
+
+Wire the I1 identity contract at the validation boundary. For each accepted provider claim, derive `id` with `ClaimIdentity.id(runId, packet.request.packetId, provider, claim.claimKey)`, retain `claimOrdinal`, and resolve every public evidence id through `packet.sourceSpanIds`. Duplicate provider claim keys in one response are invalid. This is the point where the previously packet-local key becomes a global claim id.
 
 The worker catches semantic exceptions separately:
 

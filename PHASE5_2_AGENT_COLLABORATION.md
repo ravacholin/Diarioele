@@ -43,7 +43,7 @@ I1 congela `ClaimIdentity`, los estados semánticos, las interfaces de journal y
 | I2 Orden temporal y presupuesto de paquetes | `feature/phase5-2-task-i2-packets` | `InterpretationPacketBuilder*` |
 | I3 Proyección y composición de ficha | `feature/phase5-2-task-i3-projection` | projector, materializer, composer |
 | I4 Persistencia y migración 5→6 | `feature/phase5-2-task-i4-persistence` | entidades, DAO, migración, store |
-| I5 Deadlines y reparación del estado | `feature/phase5-2-task-i5-runtime` | router, retry, worker, journal |
+| I5 Deadlines, identidad y reparación del estado | `feature/phase5-2-task-i5-runtime` | router, validador, retry, worker, journal |
 | I6 Evaluación de integridad | `feature/phase5-2-task-i6-evaluation` | tests y evaluador offline |
 
 I2, I3, I4, I5 e I6 pueden desarrollarse en paralelo después de I1. I4 es el único propietario del esquema Room. I5 consume sus interfaces con fakes hasta integrar I4.

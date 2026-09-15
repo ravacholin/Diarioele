@@ -26,6 +26,14 @@ data class RawClaim(
     val claimKey: String = id,
     val evidences: List<EvidenceRef> = listOf(evidence),
     val supersedesClaimKeys: List<String> = emptyList(),
+    // Identidad y calidad aditivas de Fase 5.2.
+    val runId: String? = null,
+    val packetId: String? = null,
+    val providerClaimKey: String = claimKey,
+    val declaredConfidence: Double = confidence,
+    val effectiveConfidence: Double = confidence,
+    val transcriptSpanIds: List<String> = emptyList(),
+    val claimOrdinal: Int = 0,
 )
 data class EvidenceClaim(
     val id: String,
@@ -41,6 +49,13 @@ data class EvidenceClaim(
     val claimKey: String = id,
     val evidences: List<EvidenceRef> = listOf(evidence),
     val supersedesClaimKeys: List<String> = emptyList(),
+    val runId: String? = null,
+    val packetId: String? = null,
+    val providerClaimKey: String = claimKey,
+    val declaredConfidence: Double = confidence,
+    val effectiveConfidence: Double = confidence,
+    val transcriptSpanIds: List<String> = emptyList(),
+    val claimOrdinal: Int = 0,
 )
 data class ClaimPresentation(val accepted: List<EvidenceClaim>, val confirm: List<EvidenceClaim>, val hidden: List<EvidenceClaim>) {
     val visibleCount get() = accepted.size + confirm.size
