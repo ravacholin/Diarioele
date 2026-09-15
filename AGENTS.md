@@ -54,10 +54,10 @@ Antes de trabajar, comprobar que estos datos no hayan sido superados por un chec
 
 ## Próxima tarea
 
-Las **olas 1–3** (Tasks 1–7) quedaron integradas y verdes en `feature/phase5-contextual-interpretation` (`9886202`): contrato, catálogo/credenciales, paquetes, adaptadores, validador/reductor/projector, caché Room (migración 4→5) y router secuencial con fallback local. Se habilita la **ola 4**: Task 8 (integración con el procesamiento y UI de configuración):
+Las **Tasks 1–8** quedaron integradas y verdes en `feature/phase5-contextual-interpretation` (`695115a`): contrato, catálogo/credenciales, paquetes, adaptadores, validador/reductor/projector, caché Room (migración 4→5), router con fallback local, integración en el procesamiento y UI de configuración de proveedores. **Solo resta Task 9**:
 
 ```text
-Task 8 -> feature/phase5-task-08-integration-ui
+Task 9 -> feature/phase5-task-09-release
 ```
 
-Task 8 compone el router en el coordinator/worker y expone la configuración/estado sin modificar el motor Whisper; luego Task 9 (release + prueba física en el Moto g max) cierra la fase. Las instrucciones exactas y el estado se encuentran en `PHASE5_HANDOFF.md`.
+Task 9 sube la versión a `0.5.0-free-router`, escribe el protocolo de prueba física y **cierra la fase con la prueba en el Moto g max (requiere el dispositivo del usuario)**. Las instrucciones exactas y el estado se encuentran en `PHASE5_HANDOFF.md`.

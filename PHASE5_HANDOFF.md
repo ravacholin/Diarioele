@@ -4,7 +4,7 @@
 
 ## Estado actual
 
-La Fase 5 está en implementación colaborativa. **Las olas 1 (Tasks 1–4), 2 (Tasks 5 y 6) y 3 (Task 7) están integradas y verdes** en `feature/phase5-contextual-interpretation` (`9886202`); con eso se habilita la ola 4 (Task 8: integración con el procesamiento y UI; luego Task 9: release y prueba física).
+La Fase 5 está casi completa. **Las Tasks 1–8 están integradas y verdes** en `feature/phase5-contextual-interpretation` (`695115a`): el motor de inferencia gratuito está cableado al procesamiento y hay UI de configuración de proveedores. **Solo resta Task 9** (release `0.5.0-free-router` + prueba física en el Moto g max), que requiere el teléfono del usuario.
 
 La Fase 4 permanece completa, validada por CI y probada con éxito en el Moto g max. La rama de Fase 5 parte de esa base funcional y no debe alterar el motor Whisper local.
 
@@ -57,16 +57,27 @@ La garantía de costo requiere claves de cuentas o proyectos sin facturación. L
 | 5. Validación y reducción | COMPLETA | Tasks 3 y 4 | PR #9, run #117 verde, `6f3b674` → merge `b08e850` |
 | 6. Caché Room | COMPLETA | Task 1 | PR #10, run #119 verde, `0b144da` → merge `a9812c0` |
 | 7. Router y fallback | COMPLETA | Tasks 2, 4, 5 y 6 | PR #11, run #124 verde, `bde19f9` → merge `9886202` |
-| 8. Integración y UI | HABILITADA | Task 7 | sin PR |
-| 9. Feedback y release | BLOQUEADA | Task 8 | sin PR |
+| 8. Integración y UI | COMPLETA | Task 7 | PR #12, run #130 verde, `5fbb38d` → merge `695115a` |
+| 9. Feedback y release | HABILITADA | Task 8 | sin PR; requiere el dispositivo |
 
 ## Siguiente acción exacta
 
-Las **olas 1–3** (Tasks 1–7) están integradas y verdes. Se habilita la **ola 4**: Task 8 (integración con el procesamiento y configuración visible), en la rama:
+Las **Tasks 1–8** están integradas y verdes. Solo resta **Task 9** (release + prueba física), en la rama:
 
 ```text
-Task 8 -> feature/phase5-task-08-integration-ui
+Task 9 -> feature/phase5-task-09-release
 ```
+
+Task 9:
+
+- Cambiar `versionCode` de 6 a 7 y `versionName` a `0.5.0-free-router`.
+- Escribir `PHASE5_FREE_INFERENCE_DEVICE_TEST.md` con el protocolo: Gemini exitoso; Gemini 429→Groq; Gemini+Groq 429→OpenRouter; todos fallan→fallback local; modo avión; cambio de modo sin llamadas; cierre y reapertura con caché; edición/aprobación/limpieza; clave inválida sin exposición. Los fallos simulados solo en debug.
+- Verificación completa (`testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest lintRelease assembleRelease`), verificar el APK (modelo + `.so` ARM64 presentes, permisos previstos, sin claves) y actualizar continuidad.
+- **Cierre empírico:** instalar el APK release firmado exacto en el Moto g max y completar el protocolo. **Requiere el teléfono del usuario.** No se declara la fase completa sin esa prueba.
+
+Nota de alcance ya entregado en Task 8: la UI Compose se validó por compilación y por los tests del controlador (`ProviderSettingsControllerTest`); su aspecto y comportamiento visual se confirman recién en la prueba física. Quedó pendiente (menor) un panel de estado de ejecución con la procedencia `MIXTO/LOCAL` y `REINTENTAR`/`CONTINUAR LOCAL`, a ajustar con el dispositivo.
+
+Pendiente menor declarado: la interpretación remota es reanudable **vía caché** (una respuesta validada por paquete sobrevive a reaperturas); no se agregó un checkpoint de interpretación por paquete adicional porque la caché ya cubre la reanudación.
 
 Reglas de la ola 4 (Task 8):
 
@@ -121,13 +132,16 @@ No se necesita audio real ni corpus. Cada error observado luego en el teléfono 
 Último checkpoint integrado:
 
 ```text
-Ola integrada: 3 (Task 7) sobre las olas 0–2 (Tasks 0–6)
-Task 7: PR #11, head bde19f9, merge 9886202, run #124 SUCCESS
-Base SHA de la ola 4: 9886202996108f43f6c8099383d49bce49bab429
+Task integrada: 8 (integración del router + UI de configuración) sobre Tasks 0–7
+Task 8: PR #12, head 5fbb38d, merge 695115a, run #130 SUCCESS
+         (parte 1 backend 287cc39 verde; parte 2 UI con re-run tras un 429 de Maven)
+Base SHA de Task 9: 695115aabc6ea3185ac74a907ed25ae6e910d281
 Pruebas: testDebugUnitTest + lintDebug + assembleDebug + assembleDebugAndroidTest
-Resultado: verde; router secuencial, política de reintentos y fallback local integrados
-Riesgos pendientes: componer router+UI en el coordinator (Task 8) y release+prueba física (Task 9)
-Próxima ola habilitada: 4 (Task 8: integración y UI; luego Task 9: release)
+Resultado: verde; el pipeline usa el router con fallback local y hay UI de proveedores
+Verificación: la UI Compose compila y su controlador pasa tests; el aspecto visual se
+              confirma en la prueba física (Task 9)
+Riesgos pendientes: release + prueba física (Task 9), requiere el dispositivo
+Próxima tarea habilitada: 9 (release 0.5.0-free-router + prueba física)
 ```
 
 Después de cada integración, reemplazar el bloque anterior con el mismo formato. No marcar una tarea como completa basándose solamente en el reporte de un agente.
@@ -161,6 +175,7 @@ Después de cada integración, reemplazar el bloque anterior con el mismo format
 - `b08e85066663a67b91ccbf64464ba845b1cb73d6`: PR #9 (Task 5) integrado después de run #117 verde.
 - `a9812c019cf6fedc53ddf89c508bed918268980e`: PR #10 (Task 6) integrado después de run #119 verde. Cierra la ola 2.
 - `9886202996108f43f6c8099383d49bce49bab429`: PR #11 (Task 7) integrado después de run #124 verde. Cierra la ola 3.
+- `695115aabc6ea3185ac74a907ed25ae6e910d281`: PR #12 (Task 8) integrado después de run #130 verde. Solo resta Task 9.
 
 ## Condición de cierre
 
