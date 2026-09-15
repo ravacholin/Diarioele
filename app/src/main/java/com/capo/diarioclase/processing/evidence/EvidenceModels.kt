@@ -12,7 +12,16 @@ enum class ClaimStatus { PERFORMED, ASSIGNED, PROPOSED, CANCELLED, CORRECTED, UN
 enum class ClaimOrigin { LOCAL_RULE, SEMANTIC, MANUAL_MARKER, USER_EDIT, GEMINI, GROQ, OPENROUTER }
 enum class InterpretationMode { CONSERVATIVE, BALANCED, EXHAUSTIVE }
 
-data class EvidenceRef(val blockId: BlockId, val startMs: Long, val endMs: Long, val excerpt: String)
+data class EvidenceRef(
+    val blockId: BlockId,
+    val startMs: Long,
+    val endMs: Long,
+    val excerpt: String,
+    val blockOrdinal: Int? = null,
+    val audioSegmentOrdinal: Int? = null,
+    val spanOrdinal: Int? = null,
+    val contextual: Boolean = false,
+)
 data class RawClaim(
     val id: String,
     val category: ClaimCategory,
