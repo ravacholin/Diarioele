@@ -102,7 +102,7 @@ git commit -m "docs: establish phase 5.2 integration baseline"
 
 **Interfaces:**
 - Consumes: `InterpretationRequest.packetId`, `InferenceProvider`, `providerClaimKey`.
-- Produces: `ClaimIdentity.id(runId, packetId, provider, providerClaimKey): String`, `InterpretationPacket(request, sourceSpanIds)`, `InterpretationRunState`, `InterpretationPacketState`, `InterpretationFailure`, and expanded claim metadata.
+- Produces: `ClaimIdentity.id(runId, packetId, provider, providerClaimKey): String`, `InterpretationPacket(request, sourceSpanIds)`, `InterpretationRunState`, `InterpretationPacketState`, `InterpretationFailure`, and expanded claim metadata including `claimOrdinal`.
 
 - [ ] **Step 1: Write failing identity tests**
 
@@ -169,14 +169,17 @@ data class InterpretationPacket(
     val sourceSpanIds: Map<String, String>,
 ) {
     init {
-        require(request.spans.map { it.publicId }.toSet() == sourceSpanIds.keys)
+        val publicIds = request.spans.map { it.publicId }
+        require(publicIds.size == publicIds.toSet().size)
+        require(publicIds.toSet() == sourceSpanIds.keys)
+        require(sourceSpanIds.values.all { it.isNotBlank() })
     }
 }
 ```
 
 I1 congela el wrapper sin cambiar todavía la firma del builder. I2 hace que `InterpretationPacketBuilder.build` devuelva estos wrappers y adapta sus consumidores. Los clientes de proveedor reciben solo `packet.request`; validadores y persistencia reciben el wrapper para mapear cada id público a un `transcriptSpanId` real.
 
-Expand `RawClaim` and `EvidenceClaim` with defaults for `runId`, `packetId`, `providerClaimKey`, `declaredConfidence`, `effectiveConfidence`, and local evidence span ids. Preserve source compatibility.
+Expand `RawClaim` and `EvidenceClaim` with defaults for `runId`, `packetId`, `providerClaimKey`, `declaredConfidence`, `effectiveConfidence`, local evidence span ids, and `claimOrdinal`. Preserve source compatibility and copy the metadata through both reducers.
 
 - [ ] **Step 4: Run contract tests**
 
