@@ -54,10 +54,12 @@ Antes de trabajar, comprobar que estos datos no hayan sido superados por un chec
 
 ## Próxima tarea
 
-Task 0 quedó integrada y verde en PR #4 / run #96. Ejecutar únicamente Task 1, “Contrato común y escenarios sintéticos”, en la rama:
+Task 0 (PR #4 / run #96) y Task 1 (PR #5 / run #101, merge `4e7c302`) quedaron integradas y verdes. El contrato común está congelado en `processing/semantic/InferenceModels.kt`. Se habilita la **ola 1**: Tasks 2, 3 y 4, cada una en su rama y con PR contra `feature/phase5-contextual-interpretation`:
 
 ```text
-feature/phase5-task-01-contracts
+Task 2 -> feature/phase5-task-02-credentials
+Task 3 -> feature/phase5-task-03-packets
+Task 4 -> feature/phase5-task-04-provider-clients
 ```
 
-Task 1 está habilitada. No comenzar las tareas paralelas hasta integrar y validar el contrato compartido. Las instrucciones exactas y el estado se encuentran en `PHASE5_HANDOFF.md`.
+Ninguna tarea de la ola 1 debe redefinir los enums, modelos o políticas congelados en Task 1. Las instrucciones exactas y el estado se encuentran en `PHASE5_HANDOFF.md`.

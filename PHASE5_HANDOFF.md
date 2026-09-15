@@ -1,10 +1,10 @@
 # Fase 5: estado y continuidad
 
-Última actualización: 2026-09-14
+Última actualización: 2026-09-15
 
 ## Estado actual
 
-La Fase 5 está diseñada y preparada para implementación colaborativa. Todavía no se implementó código de producción de esta fase.
+La Fase 5 está en implementación colaborativa. **Task 1 (contrato común y escenarios sintéticos) quedó integrada y verde**; con eso se habilita la ola 1 (Tasks 2, 3 y 4 en paralelo).
 
 La Fase 4 permanece completa, validada por CI y probada con éxito en el Moto g max. La rama de Fase 5 parte de esa base funcional y no debe alterar el motor Whisper local.
 
@@ -50,10 +50,10 @@ La garantía de costo requiere claves de cuentas o proyectos sin facturación. L
 | Tarea | Estado | Dependencias | Evidencia |
 |---|---|---|---|
 | 0. Readiness colaborativo | COMPLETA | ninguna | PR #4, run #96 verde, `cc456378` |
-| 1. Contratos y escenarios | PENDIENTE | Task 0 completa | habilitada; sin PR |
-| 2. Catálogo y credenciales | BLOQUEADA | Task 1 | sin PR |
-| 3. Paquetes contextuales | BLOQUEADA | Task 1 | sin PR |
-| 4. Prompt y clientes HTTP | BLOQUEADA | Task 1 | sin PR |
+| 1. Contratos y escenarios | COMPLETA | Task 0 completa | PR #5, run #101 verde, `f22354b` → merge `4e7c302` |
+| 2. Catálogo y credenciales | HABILITADA | Task 1 | sin PR |
+| 3. Paquetes contextuales | HABILITADA | Task 1 | sin PR |
+| 4. Prompt y clientes HTTP | HABILITADA | Task 1 | sin PR |
 | 5. Validación y reducción | BLOQUEADA | Tasks 3 y 4 | sin PR |
 | 6. Caché Room | BLOQUEADA | Task 1 | sin PR |
 | 7. Router y fallback | BLOQUEADA | Tasks 2, 4, 5 y 6 | sin PR |
@@ -62,26 +62,23 @@ La garantía de costo requiere claves de cuentas o proyectos sin facturación. L
 
 ## Siguiente acción exacta
 
-Ejecutar solamente Task 1 del plan en:
+Task 1 está integrada y el contrato quedó congelado. Se habilita la **ola 1**: Tasks 2, 3 y 4, cada una en su rama y con PR contra `feature/phase5-contextual-interpretation`.
 
 ```text
-feature/phase5-task-01-contracts
+Task 2 -> feature/phase5-task-02-credentials
+Task 3 -> feature/phase5-task-03-packets
+Task 4 -> feature/phase5-task-04-provider-clients
 ```
 
-Secuencia:
+Reglas de la ola 1:
 
-1. crear la rama desde el último head verde de `feature/phase5-contextual-interpretation`;
-2. escribir primero `InferenceContractTest` y escenarios sintéticos;
-3. implementar modelos e interfaz comunes mínimos;
-4. ejecutar las pruebas indicadas en Task 1;
-5. escanear secretos;
-6. subir la rama;
-7. abrir PR contra `feature/phase5-contextual-interpretation`;
-8. solicitar revisión de especificación y calidad;
-9. integrar solo después de CI verde;
-10. actualizar este handoff.
+- Cada rama parte del último head verde de la integración (`4e7c302`).
+- Task 4 puede importar el contrato de Task 1 pero no inventar variantes; coordina con Task 2 solo por `ProviderProfile` y el store de credenciales.
+- Ninguna redefine enums, modelos ni políticas ya congelados en `processing/semantic/InferenceModels.kt`.
+- Task 5 espera Tasks 3 y 4; Task 6 puede arrancar tras Task 1 pero se integra antes de Task 7.
+- No marcar una tarea como completa sin CI verde de su PR.
 
-Task 1 está habilitada. No iniciar Tasks 2, 3, 4 o 6 antes de congelar el contrato de Task 1.
+Contrato congelado disponible en `app/src/main/java/com/capo/diarioclase/processing/semantic/` (`InferenceModels.kt`, `InferenceProviderClient.kt`) y fixtures en `app/src/test/.../semantic/`.
 
 ## Restricciones de implementación
 
@@ -119,21 +116,22 @@ No se necesita audio real ni corpus. Cada error observado luego en el teléfono 
 
 ## Protocolo de checkpoint
 
-Después de cada integración, reemplazar esta sección con:
+Último checkpoint integrado:
 
 ```text
-Task integrada:
-PR:
-Base SHA:
-Head SHA:
-Workflow:
-Pruebas:
-Resultado:
-Riesgos pendientes:
-Próxima tarea habilitada:
+Task integrada: 1 — Contrato común y escenarios sintéticos
+PR: #5 (base feature/phase5-contextual-interpretation)
+Base SHA: 4af41616b4bbfe5a824cce304d61eae5ff770346
+Head SHA: f22354b02925ac7bcc4d242df62a152c9eca19bb
+Merge SHA: 4e7c30238fdfe0393e6b5432bfea168c9a9ea418
+Workflow: run #101 (pull_request) SUCCESS y run #100 (push) SUCCESS
+Pruebas: testDebugUnitTest (incl. InferenceContractTest) + lintDebug + assembleDebug + assembleDebugAndroidTest
+Resultado: verde; contrato congelado (modelos, interfaz, orden de spans, estado→campo, códec JSON, fixtures)
+Riesgos pendientes: ninguno de producción; la validación semántica adversarial es de Task 5
+Próxima tarea habilitada: ola 1 (Tasks 2, 3 y 4)
 ```
 
-No marcar una tarea como completa basándose solamente en el reporte de un agente.
+Después de cada integración, reemplazar el bloque anterior con el mismo formato. No marcar una tarea como completa basándose solamente en el reporte de un agente.
 
 ## Correcciones incorporadas tras revisión independiente
 
@@ -157,6 +155,7 @@ No marcar una tarea como completa basándose solamente en el reporte de un agent
 - `2143eca43c25d94aff89615e9ed5495b7919363b`: bloqueos técnicos de revisión resueltos en el plan.
 - `7a9393514e2ca572df5345235ebaf6b04406dde2`: readiness y propiedad de archivos actualizados.
 - `cc45637818c8693056590a186d4aa2dca0b7dc20`: PR #4 integrado después de GitHub Actions run #96 verde.
+- `4e7c30238fdfe0393e6b5432bfea168c9a9ea418`: PR #5 (Task 1) integrado después de GitHub Actions run #101 verde.
 
 ## Condición de cierre
 
