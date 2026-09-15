@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
+    <!-- Nada de esta app se respalda. Las claves de proveedor viven en noBackupFilesDir
+         (provider-credential-*.bin) y quedan excluidas explícitamente además del catch-all. -->
     <exclude domain="root" path="." />
+    <exclude domain="file" path="provider-credential-gemini.bin" />
+    <exclude domain="file" path="provider-credential-groq.bin" />
+    <exclude domain="file" path="provider-credential-openrouter.bin" />
 </full-backup-content>

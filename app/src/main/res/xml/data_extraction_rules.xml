@@ -1,9 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
+    <!-- Nada se transfiere ni respalda. Las claves de proveedor viven en noBackupFilesDir
+         (provider-credential-*.bin) y quedan excluidas explícitamente además del catch-all. -->
     <cloud-backup>
         <exclude domain="root" path="." />
+        <exclude domain="file" path="provider-credential-gemini.bin" />
+        <exclude domain="file" path="provider-credential-groq.bin" />
+        <exclude domain="file" path="provider-credential-openrouter.bin" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="root" path="." />
+        <exclude domain="file" path="provider-credential-gemini.bin" />
+        <exclude domain="file" path="provider-credential-groq.bin" />
+        <exclude domain="file" path="provider-credential-openrouter.bin" />
     </device-transfer>
 </data-extraction-rules>
