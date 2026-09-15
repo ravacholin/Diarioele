@@ -5,28 +5,31 @@
 Para trabajo de Fase 5, leer en este orden:
 
 1. `PHASE5_HANDOFF.md`.
-2. `docs/superpowers/specs/2026-09-14-contextual-interpretation-design.md`.
-3. `docs/superpowers/plans/2026-09-14-contextual-interpretation.md`.
-4. `PHASE5_AGENT_COLLABORATION.md`.
-5. `PHASE4_HANDOFF.md` y `PHASE4_RECOVERY_STATUS.md` solo para comprender la base estable que no debe romperse.
+2. `docs/superpowers/specs/2026-09-15-phase5-2-quality-design.md`.
+3. `docs/superpowers/plans/2026-09-15-phase5-2-integrity.md`.
+4. `docs/superpowers/plans/2026-09-15-phase6-quality-loop.md`.
+5. `PHASE5_2_AGENT_COLLABORATION.md`.
+6. Los documentos de Fase 4 y Fase 5 inicial solo como antecedentes.
 
-El plan define la implementación técnica. `PHASE5_AGENT_COLLABORATION.md` prevalece para ramas, dependencias, propiedad de archivos, revisiones e integración.
+Los planes definen la implementación técnica. `PHASE5_2_AGENT_COLLABORATION.md` prevalece para ramas, dependencias, propiedad de archivos, revisiones e integración.
 
 ## Fuente de verdad
 
 - Repositorio: `ravacholin/Diarioele`
-- Base estable: `feature/phase4-whisper-recovery`
-- Rama de integración activa: `feature/phase5-contextual-interpretation`
+- Base estable: `main` en `63c4be6cfe5c07f42dd91d8f6948b194e276da56`
+- Rama de integración activa: `feature/phase5-2-quality`
+- PR de diseño y planes: `#15`
 - Estado actualizado: `PHASE5_HANDOFF.md`
 - Fase 4: completa, validada por CI y probada en Moto g max.
-- Fase 5: diseñada; código de producción todavía no implementado.
+- Fase 5.1: integrada en `main` como `0.5.1-free-router`; falta validación física.
+- Próxima entrega: `0.5.2-integrity`.
 
 Antes de trabajar, comprobar que estos datos no hayan sido superados por un checkpoint más reciente en `PHASE5_HANDOFF.md`.
 
 ## Forma de trabajo obligatoria
 
 - Crear una rama por tarea desde el último head verde de la rama de integración.
-- Abrir cada PR de tarea contra `feature/phase5-contextual-interpretation`, no contra `main`.
+- Abrir cada PR de tarea contra `feature/phase5-2-quality`, no contra `main`.
 - No permitir escrituras concurrentes sobre una misma rama.
 - No iniciar una tarea bloqueada según el DAG de colaboración.
 - No modificar archivos reservados por otra tarea sin detenerse y declararlo.
@@ -54,6 +57,6 @@ Antes de trabajar, comprobar que estos datos no hayan sido superados por un chec
 
 ## Próxima tarea
 
-La **Fase 5 está completa a nivel de código**: las Tasks 1–9 (parte de código) quedaron integradas y verdes en `feature/phase5-contextual-interpretation` (`5ac8132`), con la versión `0.5.0-free-router`. Lo **único pendiente es la prueba física en el Moto g max** (protocolo en `PHASE5_FREE_INFERENCE_DEVICE_TEST.md`), que requiere el dispositivo del usuario y ninguna CI reemplaza.
+Ejecutar `0.5.2-integrity` según `docs/superpowers/plans/2026-09-15-phase5-2-integrity.md`.
 
-Pendientes menores declarados para una iteración futura (no bloquean la prueba): el hook de fallos simulados en debug (para encadenar 429 entre proveedores sin quitar la red) y el panel de estado de ejecución (procedencia `MIXTO/LOCAL`, `REINTENTAR`/`CONTINUAR LOCAL`). El estado y las instrucciones están en `PHASE5_HANDOFF.md`.
+La secuencia comienza con I0 (readiness) e I1 (contratos). Solo después de integrar ambos y tener CI verde se habilitan I2–I6. La propiedad de archivos, ramas y dependencias está en `PHASE5_2_AGENT_COLLABORATION.md`.

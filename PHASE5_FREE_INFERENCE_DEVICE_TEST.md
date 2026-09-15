@@ -1,6 +1,6 @@
 # Prueba física — Fase 5 (router de inferencia gratuito)
 
-APK: `0.5.0-free-router` (versionCode 7). Dispositivo de aceptación: Moto g max.
+APK: `0.5.1-free-router` (versionCode 8). Dispositivo de aceptación: Moto g max.
 
 Una compilación verde no prueba el comportamiento real en el teléfono. Esta prueba la
 completa el usuario, gradualmente. Conservar el audio ante cualquier fallo; no aprobar una
@@ -8,7 +8,7 @@ ficha durante una prueba de fallo (aprobar elimina los temporales).
 
 ## Preparación
 
-1. Instalar el APK `0.5.0-free-router`. Si la firma debug impide actualizar sobre una
+1. Instalar el APK `0.5.1-free-router`. Si la firma debug impide actualizar sobre una
    versión previa, desinstalar la anterior (borra sus datos locales).
 2. Confirmar que el APK **no** cambió su naturaleza offline por defecto: sin proveedores
    configurados, la interpretación es 100% local.
