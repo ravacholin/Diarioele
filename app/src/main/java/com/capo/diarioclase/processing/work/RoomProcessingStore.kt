@@ -30,8 +30,40 @@ import kotlinx.coroutines.flow.map
 class RoomProcessingStore(
     private val database: DiarioDatabase,
     private val clock: Clock,
-) : ProcessingStore {
+) : ProcessingStore, LocalReprojectionStore {
     private val dao = database.sessions()
+
+    override suspend fun persistedClaims(sessionId: SessionId): List<EvidenceClaim> =
+        dao.claimsSnapshot(sessionId.value).map { it.toDomain() }
+
+    /**
+     * Guarda la ficha reproyectada respetando una edición previa del docente: si la ficha
+     * almacenada está marcada como editada, sus campos ganan; siempre se actualiza el modo.
+     * No reescribe claims: la reproyección de Task I7 parte de los ya persistidos.
+     */
+    override suspend fun mergeFieldEditsAndSave(draft: DiaryDraft): DiaryDraft = database.withTransaction {
+        val edited = dao.draft(draft.sessionId)?.takeIf { it.userEdited }
+        val merged = DiaryDraftEntity(
+            id = draft.sessionId,
+            sessionId = draft.sessionId,
+            mode = draft.mode.name,
+            topics = edited?.topics ?: draft.topics,
+            activities = edited?.activities ?: draft.activities,
+            pages = edited?.pages ?: draft.pages,
+            exercises = edited?.exercises ?: draft.exercises,
+            homework = edited?.homework ?: draft.homework,
+            updatedAtEpochMs = clock.nowEpochMs(),
+            userEdited = edited?.userEdited ?: false,
+        )
+        dao.saveDraft(merged)
+        draft.copy(
+            topics = merged.topics,
+            activities = merged.activities,
+            pages = merged.pages,
+            exercises = merged.exercises,
+            homework = merged.homework,
+        )
+    }
 
     override suspend fun sessionState(id: SessionId) =
         SessionState.valueOf(requireNotNull(dao.session(id.value)).state)

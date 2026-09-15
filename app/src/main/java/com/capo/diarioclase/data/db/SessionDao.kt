@@ -40,6 +40,7 @@ import kotlinx.coroutines.flow.Flow
  @Query("DELETE FROM evidence_claims WHERE sessionId=:sessionId AND origin!='USER_EDIT'") suspend fun deleteMachineClaims(sessionId:String)
  @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun insertClaims(claims:List<EvidenceClaimEntity>)
  @Query("SELECT * FROM evidence_claims WHERE sessionId=:sessionId ORDER BY category,startMs") fun observeClaims(sessionId:String):Flow<List<EvidenceClaimEntity>>
+ @Query("SELECT * FROM evidence_claims WHERE sessionId=:sessionId ORDER BY category,startMs") suspend fun claimsSnapshot(sessionId:String):List<EvidenceClaimEntity>
  @Query("SELECT * FROM evidence_claims WHERE sessionId=(SELECT id FROM sessions ORDER BY updatedAtEpochMs DESC LIMIT 1) ORDER BY category,startMs") fun observeLatestClaims():Flow<List<EvidenceClaimEntity>>
  @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun saveDraft(draft:DiaryDraftEntity)
  @Query("SELECT * FROM diary_drafts WHERE sessionId=:sessionId LIMIT 1") suspend fun draft(sessionId:String):DiaryDraftEntity?
