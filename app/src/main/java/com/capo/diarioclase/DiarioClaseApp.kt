@@ -27,7 +27,9 @@ import com.capo.diarioclase.processing.semantic.OpenAiCompatibleProfile
 import com.capo.diarioclase.processing.semantic.OpenAiCompatibleProviderClient
 import com.capo.diarioclase.processing.semantic.ProviderCredentialStore
 import com.capo.diarioclase.processing.semantic.ProviderModel
+import com.capo.diarioclase.processing.semantic.ProviderSettingsController
 import com.capo.diarioclase.processing.semantic.ProviderSettingsStore
+import com.capo.diarioclase.processing.semantic.RealProviderConnectionTester
 import com.capo.diarioclase.processing.semantic.RoomInterpretationCache
 import com.capo.diarioclase.processing.semantic.RouterSemanticInterpreter
 import com.capo.diarioclase.processing.semantic.SemanticClaimReducer
@@ -68,6 +70,7 @@ class DiarioClaseApp : Application() {
     lateinit var cleanupCoordinator: CleanupCoordinator
     lateinit var providerSettings: ProviderSettingsStore
     lateinit var providerCredentials: ProviderCredentialStore
+    lateinit var providerSettingsController: ProviderSettingsController
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -138,6 +141,11 @@ class DiarioClaseApp : Application() {
             },
         )
         transcriptionCoordinator = TranscriptionCoordinator(processingStore, whisperEngine, interpreter = interpreter)
+        providerSettingsController = ProviderSettingsController(
+            settings = providerSettings,
+            credentials = providerCredentials,
+            connectionTester = RealProviderConnectionTester(clients, providerCredentials),
+        )
         appScope.launch {
             database.sessions().recoverInterruptedTranscriptions()
             recovery.onAppStart()
