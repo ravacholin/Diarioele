@@ -73,7 +73,6 @@ Q0 se integra y queda verde antes de iniciar trabajo paralelo.
 | Q2 Prompts, schemas y corrección real | `feature/phase6-task-q2-provider-quality` | prompt y adaptadores |
 | Q3 Fusión local + IA | `feature/phase6-task-q3-hybrid-merge` | merger y reducción |
 | Q4 Feedback y revisión por campo | `feature/phase6-task-q4-feedback` | revisiones, ViewModel y UI |
-| Q4 Feedback y revisión por campo | `feature/phase6-task-q4-feedback` | revisiones, ViewModel y UI |
 
 Q1–Q4 parten de Q0 verde. Q4 consume el esquema y journal integrados en I4/I5.
 
@@ -111,11 +110,11 @@ flowchart TD
 
 - `AGENTS.md`, `PHASE5_HANDOFF.md`, este documento: integrador.
 - `InferenceModels.kt`, interfaces compartidas: I1; cambios posteriores requieren PR de contrato.
-- `Entities.kt`, `SessionDao.kt`, `DiarioDatabase.kt`: I4 y luego Q4/Q6 en ese orden.
+- `Entities.kt`, `SessionDao.kt`, `DiarioDatabase.kt`: I4 y luego Q4.
 - `TranscriptionCoordinator.kt`: I3, luego I7, luego Q7.
 - `TranscriptionWorker.kt`: I5, luego Q5.
-- `CaptureViewModel.kt`, `CaptureScreen.kt`: I7, luego Q4/Q5 con integración secuencial.
-- `app/build.gradle.kts` y protocolos de dispositivo: I8 y Q8.
+- `CaptureViewModel.kt`, `CaptureScreen.kt`: I7, luego Q4, luego Q5, luego Q7.
+- `app/build.gradle.kts` y protocolos de dispositivo: I8 y Q7.
 - `.github/workflows/android-apk.yml`: integrador o tarea de release.
 
 ## Contrato de entrega
