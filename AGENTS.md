@@ -54,11 +54,10 @@ Antes de trabajar, comprobar que estos datos no hayan sido superados por un chec
 
 ## Próxima tarea
 
-La **ola 1** (Tasks 1, 2, 3 y 4) quedó integrada y verde en `feature/phase5-contextual-interpretation` (`7178106`): contrato, catálogo/credenciales cifradas, paquetes contextuales y adaptadores Gemini/Groq/OpenRouter. Se habilita la **ola 2**: Tasks 5 y 6, cada una en su rama y con PR contra `feature/phase5-contextual-interpretation`:
+Las **olas 1 y 2** (Tasks 1–6) quedaron integradas y verdes en `feature/phase5-contextual-interpretation` (`a9812c0`): contrato, catálogo/credenciales, paquetes, adaptadores, validador/reductor/projector y caché Room (migración 4→5). Se habilita la **ola 3**: Task 7 (router secuencial y fallback local):
 
 ```text
-Task 5 -> feature/phase5-task-05-validation
-Task 6 -> feature/phase5-task-06-cache
+Task 7 -> feature/phase5-task-07-router
 ```
 
-Ninguna tarea debe redefinir los enums, modelos o políticas congelados en Task 1, ni depender de una tarea hermana no integrada. Las instrucciones exactas y el estado se encuentran en `PHASE5_HANDOFF.md`.
+Task 7 solo compone los artefactos existentes y aplica la política de rutas; no redefine enums, modelos ni políticas, ni depende de una tarea hermana no integrada. Las instrucciones exactas y el estado se encuentran en `PHASE5_HANDOFF.md`.
