@@ -214,3 +214,26 @@ data class SessionWithBlocks(
     @Embedded val session: SessionEntity,
     @Relation(parentColumn = "id", entityColumn = "sessionId") val blocks: List<BlockEntity>,
 )
+
+/**
+ * Caché de respuestas de inferencia validadas (Task 6), acotada por sesión.
+ *
+ * `cacheId` es SHA-256 de sesión, paquete, proveedor, modelo, versiones de prompt/esquema
+ * y versión del validador. Guarda el JSON validado para reutilizarlo sin volver a llamar a
+ * un proveedor. Es temporal: se borra junto con el resto de datos de la sesión al aprobar.
+ */
+@Entity(
+    tableName = "interpretation_cache",
+    indices = [Index("sessionId"), Index("packetId")],
+)
+data class InterpretationCacheEntity(
+    @PrimaryKey val cacheId: String,
+    val packetId: String,
+    val sessionId: String,
+    val provider: String,
+    val modelId: String,
+    val promptVersion: String,
+    val schemaVersion: String,
+    val validatedJson: String,
+    val createdAtEpochMs: Long,
+)

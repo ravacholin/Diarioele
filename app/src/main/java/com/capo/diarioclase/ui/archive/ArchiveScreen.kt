@@ -9,6 +9,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import kotlinx.coroutines.launch
+import com.capo.diarioclase.processing.semantic.ConnectionResult
+import com.capo.diarioclase.processing.semantic.InferenceProvider
+import com.capo.diarioclase.processing.semantic.ProviderSettingsController
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
@@ -141,7 +151,12 @@ fun ArchiveScreen(state: ArchiveUiState, viewModel: ArchiveViewModel, onCapture:
 }
 
 @Composable
-fun SettingsScreen(state: ArchiveUiState, onMode: (InterpretationMode) -> Unit, onArchive: () -> Unit) {
+fun SettingsScreen(
+    state: ArchiveUiState,
+    onMode: (InterpretationMode) -> Unit,
+    onArchive: () -> Unit,
+    providerController: ProviderSettingsController? = null,
+) {
     BackHandler(onBack = onArchive)
     LazyColumn(
         Modifier.fillMaxSize().background(Color.Black).padding(24.dp),
@@ -157,9 +172,77 @@ fun SettingsScreen(state: ArchiveUiState, onMode: (InterpretationMode) -> Unit, 
         item { ModeChoice("Conservador", "Incluye solo datos explícitos. Deja las dudas por confirmar.", InterpretationMode.CONSERVATIVE, state, onMode) }
         item { ModeChoice("Equilibrado", "Incluye datos explícitos y relaciones claras dentro de lo dicho. Mantiene las dudas por confirmar.", InterpretationMode.BALANCED, state, onMode) }
         item { ModeChoice("Exhaustivo", "Recoge más detalles respaldados por la transcripción. Puede requerir una revisión más cuidadosa; no inventa información.", InterpretationMode.EXHAUSTIVE, state, onMode) }
+        if (providerController != null) {
+            item {
+                Spacer(Modifier.height(8.dp))
+                Text("INTERPRETACIÓN CON IA (OPCIONAL)", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Spacer(Modifier.height(8.dp))
+                Text("El audio nunca se envía. Con tu consentimiento, se envía solo texto transcripto (con ids artificiales) a un proveedor gratuito para armar la ficha. Sin proveedores, la interpretación es 100% local.", color = Color.LightGray)
+            }
+            item { ProviderConfigSection(providerController) }
+        }
         item { state.message?.let { Text(it, color = Color.LightGray) } }
         item { ArchiveButton("DIARIOS GUARDADOS", !state.busy, onArchive, filled = false) }
     }
+}
+
+@Composable
+private fun ProviderConfigSection(controller: ProviderSettingsController) {
+    val scope = rememberCoroutineScope()
+    var views by remember { mutableStateOf(controller.providers()) }
+    fun refresh() { views = controller.providers() }
+
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        views.forEach { view ->
+            var key by remember(view.provider) { mutableStateOf("") }
+            var testResult by remember(view.provider) { mutableStateOf<ConnectionResult?>(null) }
+            Column(Modifier.fillMaxWidth().border(1.dp, Color.DarkGray).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(providerLabel(view.provider), fontSize = 18.sp, fontWeight = FontWeight.Black)
+                Text("Modelo: ${view.modelId}", color = Color.LightGray, fontSize = 12.sp)
+                view.keyLast4?.let { Text("Clave guardada ····$it", color = Color.LightGray, fontSize = 12.sp) }
+
+                ArchiveButton(if (view.enabled) "ACTIVADO" else "ACTIVAR", true, { controller.setEnabled(view.provider, !view.enabled); refresh() }, filled = view.enabled)
+                ArchiveButton(if (view.consented) "CONSENTIMIENTO DADO" else "DAR CONSENTIMIENTO", true, { controller.setConsent(view.provider, !view.consented); refresh() }, filled = view.consented)
+
+                OutlinedTextField(
+                    value = key,
+                    onValueChange = { key = it },
+                    label = { Text("CLAVE") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    shape = RectangleShape,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                ArchiveButton("GUARDAR CLAVE", key.isNotBlank(), {
+                    controller.saveKey(view.provider, key.toCharArray())
+                    key = ""
+                    testResult = null
+                    refresh()
+                })
+                if (view.hasKey) {
+                    ArchiveButton("PROBAR CONEXIÓN", true, {
+                        scope.launch { testResult = controller.testConnection(view.provider) }
+                    }, filled = false)
+                    ArchiveButton("BORRAR CLAVE", true, { controller.clearKey(view.provider); testResult = null; refresh() }, filled = false)
+                }
+                testResult?.let { Text(connectionLabel(it), color = Color.LightGray, fontSize = 12.sp) }
+            }
+        }
+    }
+}
+
+private fun providerLabel(provider: InferenceProvider) = when (provider) {
+    InferenceProvider.GEMINI -> "GEMINI"
+    InferenceProvider.GROQ -> "GROQ"
+    InferenceProvider.OPENROUTER -> "OPENROUTER (FREE)"
+}
+
+private fun connectionLabel(result: ConnectionResult) = when (result) {
+    ConnectionResult.OK -> "Conexión correcta."
+    ConnectionResult.INVALID_KEY -> "La clave no es válida."
+    ConnectionResult.BILLING_WARNING -> "Advertencia: la cuenta podría tener facturación. Usá un proyecto sin facturación."
+    ConnectionResult.UNAVAILABLE -> "No se pudo conectar en este momento."
+    ConnectionResult.NOT_CONFIGURED -> "Falta guardar la clave."
 }
 
 @Composable
