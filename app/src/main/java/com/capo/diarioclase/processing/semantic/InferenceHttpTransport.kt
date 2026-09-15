@@ -1,6 +1,10 @@
 package com.capo.diarioclase.processing.semantic
 
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.net.URL
@@ -37,6 +41,8 @@ class TransportPolicyException(message: String) : Exception(message)
 
 class DefaultInferenceHttpTransport(
     private val maxResponseBytes: Int = 512 * 1024,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val openConnection: (URL) -> HttpsURLConnection = { it.openConnection() as HttpsURLConnection },
 ) : InferenceHttpTransport {
 
     override suspend fun request(
@@ -45,7 +51,7 @@ class DefaultInferenceHttpTransport(
         body: String,
         connectTimeoutMs: Int,
         readTimeoutMs: Int,
-    ): HttpTransportResult = withContext(Dispatchers.IO) {
+    ): HttpTransportResult {
         val parsed = URL(url)
         if (!parsed.protocol.equals("https", ignoreCase = true)) {
             throw TransportPolicyException("Solo se permite HTTPS.")
@@ -54,32 +60,44 @@ class DefaultInferenceHttpTransport(
             throw TransportPolicyException("Host no permitido.")
         }
 
-        val connection = (parsed.openConnection() as HttpsURLConnection).apply {
-            requestMethod = "POST"
-            instanceFollowRedirects = false
-            connectTimeout = connectTimeoutMs
-            readTimeout = readTimeoutMs
-            doOutput = true
-            setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            setRequestProperty("Accept", "application/json")
-            headers.forEach { (name, value) -> setRequestProperty(name, value) }
-        }
+        return withContext(ioDispatcher) {
+            val connection = openConnection(parsed).apply {
+                requestMethod = "POST"
+                instanceFollowRedirects = false
+                connectTimeout = connectTimeoutMs
+                readTimeout = readTimeoutMs
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                setRequestProperty("Accept", "application/json")
+                headers.forEach { (name, value) -> setRequestProperty(name, value) }
+            }
 
-        try {
-            connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-            val status = connection.responseCode
-            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val responseBody = stream?.bufferedReader(Charsets.UTF_8)?.use { reader ->
-                readBounded(reader)
-            }.orEmpty()
-            val responseHeaders = buildMap {
-                connection.headerFields.forEach { (name, values) ->
-                    if (name != null) put(name, values.firstOrNull().orEmpty())
+            // La E/S bloqueante no responde por sí sola a la cancelación de la corrutina; al
+            // cancelarse el paquete o la sesión (Task I5), desconectar la conexión desbloquea
+            // el read pendiente para que la ficha no quede colgada esperando al proveedor.
+            suspendCancellableCoroutine { continuation ->
+                continuation.invokeOnCancellation { runCatching { connection.disconnect() } }
+                try {
+                    connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+                    val status = connection.responseCode
+                    val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+                    val responseBody = stream?.bufferedReader(Charsets.UTF_8)?.use { reader ->
+                        readBounded(reader)
+                    }.orEmpty()
+                    val responseHeaders = buildMap {
+                        connection.headerFields.forEach { (name, values) ->
+                            if (name != null) put(name, values.firstOrNull().orEmpty())
+                        }
+                    }
+                    if (continuation.isActive) {
+                        continuation.resume(HttpTransportResult(status, responseBody, responseHeaders))
+                    }
+                } catch (t: Throwable) {
+                    if (continuation.isActive) continuation.resumeWithException(t)
+                } finally {
+                    runCatching { connection.disconnect() }
                 }
             }
-            HttpTransportResult(status, responseBody, responseHeaders)
-        } finally {
-            connection.disconnect()
         }
     }
 

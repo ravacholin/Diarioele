@@ -85,16 +85,22 @@ class TranscriptionCoordinatorTest {
         }
         val evidence = EvidenceRef(BlockId("block"), 0, 1_000, "ejercicio cuatro")
         val interpreter = object : SemanticInterpreter {
-            override suspend fun interpret(sessionId: SessionId, spans: List<TranscriptSpan>) = listOf(
-                EvidenceClaim(
-                    id = "e1",
-                    category = ClaimCategory.EXERCISE,
-                    value = "4",
-                    normalizedValue = "4",
-                    status = ClaimStatus.ASSIGNED,
-                    confidence = 1.0,
-                    origin = ClaimOrigin.GEMINI,
-                    evidence = evidence,
+            override suspend fun interpret(
+                sessionId: SessionId,
+                spans: List<TranscriptSpan>,
+                budget: InterpretationBudget,
+            ) = InterpretationOutcome.Remote(
+                listOf(
+                    EvidenceClaim(
+                        id = "e1",
+                        category = ClaimCategory.EXERCISE,
+                        value = "4",
+                        normalizedValue = "4",
+                        status = ClaimStatus.ASSIGNED,
+                        confidence = 1.0,
+                        origin = ClaimOrigin.GEMINI,
+                        evidence = evidence,
+                    ),
                 ),
             )
         }
