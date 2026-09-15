@@ -70,6 +70,21 @@ data class InterpretationRequest(
     val spans: List<PublicTranscriptSpan>,
 )
 
+/**
+ * Local-only request envelope. Provider clients receive [request], while validation and
+ * persistence retain [sourceSpanIds] to resolve public aliases to transcript span ids.
+ */
+data class InterpretationPacket(
+    val request: InterpretationRequest,
+    val sourceSpanIds: Map<String, String>,
+) {
+    init {
+        require(request.spans.map { it.publicId }.toSet() == sourceSpanIds.keys) {
+            "Every public span id must map to exactly one local transcript span id."
+        }
+    }
+}
+
 /** Resultado de una llamada a un proveedor. Éxito con JSON crudo, o falla tipificada. */
 sealed interface ProviderOutcome {
     data class Success(
