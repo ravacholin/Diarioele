@@ -17,7 +17,7 @@ class InterpretationPacketBuilderTest {
 
     @Test
     fun `orders spans by block and time and assigns public ids`() {
-        // Entrada desordenada en el tiempo y con dos bloques entremezclados.
+        // Entrada desordenada dentro de un segmento y con dos bloques entremezclados.
         val spans = listOf(
             transcriptSpan(block = "blk-A", segment = "seg-1", start = 3_000, text = "tercero"),
             transcriptSpan(block = "blk-A", segment = "seg-1", start = 1_000, text = "primero"),
@@ -30,7 +30,8 @@ class InterpretationPacketBuilderTest {
         // Bloque A (primera aparición) es B1; bloque B es B2, en orden de aparición.
         val blockA = packets.first { it.request.spans.any { s -> s.blockOrdinal == 1 } }
         val ordered = blockA.request.spans.filterNot { it.contextOnly }
-        assertEquals(listOf("primero", "segundo", "tercero"), ordered.map { it.text })
+        // Se ordena seg-1 internamente y luego se conserva seg-2, aunque su reloj sea menor.
+        assertEquals(listOf("primero", "tercero", "segundo"), ordered.map { it.text })
         assertEquals(listOf("B1-S1", "B1-S2", "B1-S3"), ordered.map { it.publicId })
 
         val blockB = packets.first { it.request.spans.any { s -> s.blockOrdinal == 2 } }

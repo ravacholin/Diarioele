@@ -30,7 +30,7 @@ class RouterSemanticInterpreter(
         val disabled = mutableSetOf<InferenceProvider>()
 
         val rawClaims = packets.flatMap { packet ->
-            when (val outcome = router.route(sessionId.value, packet, providers, disabled)) {
+            when (val outcome = router.route(sessionId.value, packet.request, providers, disabled)) {
                 is RoutedPacketOutcome.Remote -> outcome.claims
                 is RoutedPacketOutcome.Local -> outcome.claims
             }
