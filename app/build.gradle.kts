@@ -11,8 +11,8 @@ android {
         applicationId = "com.capo.diarioclase.phase2"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.5.0-free-router"
+        versionCode = 8
+        versionName = "0.5.1-free-router"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild {
