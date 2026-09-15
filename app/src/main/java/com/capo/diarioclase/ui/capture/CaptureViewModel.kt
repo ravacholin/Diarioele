@@ -29,6 +29,7 @@ class CaptureViewModel(repository:SessionRepository,private val actions:CaptureA
   val failing=segmentFailed||runState==TranscriptionRunState.FAILED
   val paused=runState==TranscriptionRunState.PAUSED
   val running=runState==TranscriptionRunState.PREPARING||runState==TranscriptionRunState.PROCESSING||paused
+  val extracting=report.state==SessionState.EXTRACTING&&!segmentFailed&&runState!=TranscriptionRunState.FAILED&&!paused
   val status=when{
    report.state==SessionState.AWAITING_REVIEW&&draft!=null->CaptureStatus.DRAFT
    running&&!failing->CaptureStatus.PROCESSING
@@ -44,10 +45,11 @@ class CaptureViewModel(repository:SessionRepository,private val actions:CaptureA
    status==CaptureStatus.DRAFT->"Ficha generada. Revisá antes de aprobar"
    paused->"Procesamiento en pausa. El audio sigue guardado"
    runState==TranscriptionRunState.PREPARING->"Preparando el modelo local de español"
+   extracting->"Generando la ficha… (interpretando la transcripción)"
    status==CaptureStatus.PROCESSING->"Transcribiendo en español · $percent%"
    else->if(report.allAudioReady)"Audio verificado y disponible" else "Revisá el estado del audio"
   }
-  return CaptureUiState(status=status,sessionId=report.sessionId,busy=actionInProgress.get(),message=message,lastRecording=report,draft=draft,claims=evidence,processedMs=processed,processingTotalMs=total,progressPercent=percent,progressLabel=if(runState==TranscriptionRunState.PREPARING)"PREPARANDO MODELO" else null,transcriptionPaused=paused,processingFailure=failure.takeIf{failing})
+  return CaptureUiState(status=status,sessionId=report.sessionId,busy=actionInProgress.get(),message=message,lastRecording=report,draft=draft,claims=evidence,processedMs=processed,processingTotalMs=total,progressPercent=percent,progressLabel=if(runState==TranscriptionRunState.PREPARING)"PREPARANDO MODELO" else if(extracting)"GENERANDO FICHA" else null,transcriptionPaused=paused,processingFailure=failure.takeIf{failing})
  }
  fun onStart(){execute{actions.startNewDay()}};fun onResume(){_state.value.sessionId?.let{id->execute{actions.resume(id)}}};fun onPause(){execute{actions.pause()}}
  fun onMarkHomework(){val s=_state.value.sessionId;val b=_state.value.currentBlockId;if(s!=null&&b!=null)execute(clearOnSuccess=true){actions.markHomework(s,b);_state.update{it.copy(homeworkMarkers=it.homeworkMarkers+1,message="Tarea marcada")}}}

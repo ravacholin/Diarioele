@@ -28,6 +28,13 @@ class RealProviderConnectionTester(
             is ProviderOutcome.Failure -> when (outcome.code) {
                 ProviderFailure.AUTHENTICATION -> ConnectionResult.INVALID_KEY
                 ProviderFailure.BILLING_RISK -> ConnectionResult.BILLING_WARNING
+                ProviderFailure.QUOTA -> ConnectionResult.QUOTA
+                ProviderFailure.NO_NETWORK -> ConnectionResult.NO_NETWORK
+                // El proveedor respondió pero rechazó el pedido: típicamente un modelo
+                // inexistente (404) o un formato inválido. Lo distinguimos para que el
+                // usuario sepa que la clave está bien pero el modelo/petición no.
+                ProviderFailure.INVALID_RESPONSE,
+                ProviderFailure.EMPTY_RESPONSE -> ConnectionResult.MODEL_OR_REQUEST
                 else -> ConnectionResult.UNAVAILABLE
             }
         }

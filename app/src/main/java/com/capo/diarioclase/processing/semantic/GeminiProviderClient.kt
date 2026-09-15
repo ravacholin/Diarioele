@@ -86,6 +86,9 @@ class GeminiProviderClient(
         ProviderOutcome.Failure(InferenceProvider.GEMINI, code, retryable)
 
     companion object {
-        private const val DEFAULT_MODEL = "gemini-3-flash-preview"
+        // `gemini-2.5-flash` es un modelo estable con free tier real (mejores límites
+        // gratuitos: 15 pedidos/min, 1500/día). El anterior `gemini-3-flash-preview`
+        // no existe en la API y devolvía 404.
+        private const val DEFAULT_MODEL = "gemini-2.5-flash"
     }
 }

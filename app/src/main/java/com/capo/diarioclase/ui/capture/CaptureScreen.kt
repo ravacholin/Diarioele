@@ -46,15 +46,15 @@ fun CaptureScreen(state:CaptureUiState,onStart:()->Unit,onPause:()->Unit,onResum
   item{VerificationBox(report);playbackError?.let{Text(it,modifier=Modifier.padding(top=12.dp))}}
   items(report.blocks,key={it.id.value}){block->BlockReport(block,playingId,::toggle)}
   item{HorizontalDivider(color=Color.DarkGray);Text("WHISPER LOCAL · ESPAÑOL",fontSize=12.sp,fontWeight=FontWeight.Bold,letterSpacing=2.sp);Text("MODELO INTEGRADO",color=Color.LightGray,fontSize=11.sp,letterSpacing=1.sp);Spacer(Modifier.height(10.dp))
-   val preparing=state.progressLabel=="PREPARANDO MODELO";val hasFailure=state.processingFailure!=null||report.segments.any{it.state==SegmentState.FAILED}
-   val heading=when{state.status==CaptureStatus.PROCESSING&&state.transcriptionPaused->"EN PAUSA";state.status==CaptureStatus.PROCESSING&&preparing->"PREPARANDO MODELO";state.status==CaptureStatus.PROCESSING->"EN CURSO";hasFailure->"TRANSCRIPCIÓN INTERRUMPIDA";else->"LISTA PARA INICIAR"}
+   val preparing=state.progressLabel=="PREPARANDO MODELO";val generating=state.progressLabel=="GENERANDO FICHA";val indeterminate=preparing||generating;val hasFailure=state.processingFailure!=null||report.segments.any{it.state==SegmentState.FAILED}
+   val heading=when{state.status==CaptureStatus.PROCESSING&&state.transcriptionPaused->"EN PAUSA";state.status==CaptureStatus.PROCESSING&&preparing->"PREPARANDO MODELO";state.status==CaptureStatus.PROCESSING&&generating->"GENERANDO FICHA";state.status==CaptureStatus.PROCESSING->"EN CURSO";hasFailure->"TRANSCRIPCIÓN INTERRUMPIDA";else->"LISTA PARA INICIAR"}
    Text(heading,fontSize=24.sp,fontWeight=FontWeight.Black);Text(state.message.orEmpty(),color=Color.LightGray);Spacer(Modifier.height(14.dp))
    if(state.status==CaptureStatus.PROCESSING){
-    if(preparing)LinearProgressIndicator(Modifier.fillMaxWidth(),color=Color.White,trackColor=Color.DarkGray)
+    if(indeterminate)LinearProgressIndicator(Modifier.fillMaxWidth(),color=Color.White,trackColor=Color.DarkGray)
     else{LinearProgressIndicator(progress={state.progressPercent/100f},modifier=Modifier.fillMaxWidth(),color=Color.White,trackColor=Color.DarkGray);Spacer(Modifier.height(8.dp));Text("${state.progressPercent}% confirmado",color=Color.LightGray,fontSize=12.sp);Text("${formatDuration(state.processedMs)} / ${formatDuration(state.processingTotalMs)}",color=Color.LightGray,fontSize=12.sp)}
     Spacer(Modifier.height(12.dp))
     if(state.transcriptionPaused)MonoButton("RETOMAR",!state.busy,{onResumeProcessing(interpretationMode)})
-    else if(!preparing)MonoButton("PAUSAR PROCESAMIENTO",!state.busy,onPauseProcessing,false)
+    else if(!indeterminate)MonoButton("PAUSAR PROCESAMIENTO",!state.busy,onPauseProcessing,false)
    }else MonoButton(if(hasFailure)"REINTENTAR" else "PROCESAR AUDIO",report.allAudioReady&&!state.busy,{if(hasFailure)onResumeProcessing(interpretationMode) else onProcess(interpretationMode)})}
   item{Text("El audio se conserva durante toda esta fase. Un fallo de transcripción no lo elimina.",color=Color.LightGray,fontSize=12.sp);Spacer(Modifier.height(8.dp));MonoButton("COMENZAR OTRO DÍA",state.status!=CaptureStatus.PROCESSING,onStart,false);Spacer(Modifier.height(24.dp))}
  }

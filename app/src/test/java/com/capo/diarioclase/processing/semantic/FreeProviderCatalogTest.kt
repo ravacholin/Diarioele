@@ -19,7 +19,7 @@ class FreeProviderCatalogTest {
 
     @Test
     fun `model ids are fixed and openrouter is always free`() {
-        assertEquals("gemini-3-flash-preview", FreeProviderCatalog.modelId(InferenceProvider.GEMINI))
+        assertEquals("gemini-2.5-flash", FreeProviderCatalog.modelId(InferenceProvider.GEMINI))
         assertEquals("openai/gpt-oss-20b", FreeProviderCatalog.modelId(InferenceProvider.GROQ))
         assertEquals("openrouter/free", FreeProviderCatalog.modelId(InferenceProvider.OPENROUTER))
         assertTrue(FreeProviderCatalog.modelId(InferenceProvider.OPENROUTER).endsWith("/free"))

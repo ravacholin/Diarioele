@@ -1,7 +1,16 @@
 package com.capo.diarioclase.processing.semantic
 
 /** Resultado de probar la conexión de un proveedor (sin transcribir). */
-enum class ConnectionResult { OK, INVALID_KEY, BILLING_WARNING, UNAVAILABLE, NOT_CONFIGURED }
+enum class ConnectionResult {
+    OK,
+    INVALID_KEY,
+    BILLING_WARNING,
+    QUOTA,
+    NO_NETWORK,
+    MODEL_OR_REQUEST,
+    UNAVAILABLE,
+    NOT_CONFIGURED,
+}
 
 /** Prueba de conexión inyectable (envía un prompt fijo mínimo y descarta la respuesta). */
 fun interface ProviderConnectionTester {

@@ -24,6 +24,9 @@ import com.capo.diarioclase.processing.transcription.WindowTranscriptResult
 import com.capo.diarioclase.processing.transcription.WindowTranscriptionEngine
 import com.capo.diarioclase.recording.audio.ReadySegment
 import java.io.File
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 data class ProcessableSegment(
     val ready: ReadySegment,
@@ -58,6 +61,13 @@ interface ProcessingStore {
     suspend fun checkpoints(id: SessionId): List<TranscriptionCheckpointEntity>
     suspend fun saveRun(run: TranscriptionRunEntity)
     suspend fun markTranscribing(id: SegmentId)
+
+    /**
+     * Persiste el avance parcial de la ventana en curso (progreso en vivo). Por defecto es
+     * un no-op para implementaciones que no lo necesitan.
+     */
+    suspend fun updateWindowProgress(run: TranscriptionRunEntity, processedMs: Long) = Unit
+
     suspend fun confirmWindow(
         segmentId: SegmentId,
         spans: List<TranscriptSpan>,
@@ -262,7 +272,29 @@ class TranscriptionCoordinator(
                 endMs = plan.endMs,
                 samples = samples,
             )
-            when (val result = engine.transcribe(window)) {
+            val windowSpanMs = (plan.confirmedUntilMs - confirmedUntilMs).coerceAtLeast(0L)
+            val baseProcessedMs = processingRun.processedMs
+            val result = coroutineScope {
+                val progressChannel = Channel<Int>(Channel.CONFLATED)
+                launch {
+                    var lastPercent = -1
+                    for (percent in progressChannel) {
+                        if (percent <= lastPercent) continue
+                        lastPercent = percent
+                        val partial = (baseProcessedMs + windowSpanMs * percent / 100)
+                            .coerceIn(baseProcessedMs, run.totalMs)
+                        runCatching { store.updateWindowProgress(processingRun, partial) }
+                    }
+                }
+                try {
+                    engine.transcribe(window) { percent ->
+                        progressChannel.trySend(percent.coerceIn(0, 100))
+                    }
+                } finally {
+                    progressChannel.close()
+                }
+            }
+            when (result) {
                 is WindowTranscriptResult.Success -> {
                     val segmentComplete = plan.endMs >= segment.ready.durationMs
                     val savedCheckpoint = checkpoint.copy(

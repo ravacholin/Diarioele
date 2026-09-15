@@ -19,8 +19,10 @@ interface InferenceHttpTransport {
         url: String,
         headers: Map<String, String>,
         body: String,
-        connectTimeoutMs: Int = 30_000,
-        readTimeoutMs: Int = 90_000,
+        // Un modelo Flash gratuito responde en pocos segundos. Timeouts cortos evitan que
+        // una llamada colgada congele la generación de la ficha (antes: 30 s / 90 s).
+        connectTimeoutMs: Int = 10_000,
+        readTimeoutMs: Int = 30_000,
     ): HttpTransportResult
 }
 

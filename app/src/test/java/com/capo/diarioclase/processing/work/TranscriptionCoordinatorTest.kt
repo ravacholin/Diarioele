@@ -52,6 +52,27 @@ class TranscriptionCoordinatorTest {
     }
 
     @Test
+    fun `live window progress is persisted as partial processed time`() = runTest {
+        val store = FakeStore(durations = linkedMapOf("a" to 1_000L))
+        val engine = object : WindowTranscriptionEngine {
+            override suspend fun transcribe(window: AudioWindow) = transcribe(window) {}
+            override suspend fun transcribe(
+                window: AudioWindow,
+                onProgress: (Int) -> Unit,
+            ): WindowTranscriptResult {
+                onProgress(50)
+                onProgress(100)
+                return WindowTranscriptResult.Success(listOf(span(window, "Página diez")))
+            }
+        }
+
+        coordinator(store, engine).process(SessionId("day"), InterpretationMode.CONSERVATIVE)
+
+        assertTrue(store.windowProgress.isNotEmpty())
+        assertEquals(1_000L, store.windowProgress.last())
+    }
+
+    @Test
     fun `confirmed window is not transcribed twice after restart`() = runTest {
         val store = FakeStore(durations = linkedMapOf("a" to 65_000L))
         store.savedRun = runEntity(processedMs = 28_000, totalMs = 65_000)
@@ -241,6 +262,7 @@ private class FakeStore(
     var savedRun: TranscriptionRunEntity? = null
     var generatedDraft: DiaryDraft? = null
     var existingDraft: DiaryDraftEntity? = null
+    val windowProgress = mutableListOf<Long>()
 
     fun nextId() = "claim-" + counter++
 
@@ -273,6 +295,11 @@ private class FakeStore(
 
     override suspend fun markTranscribing(id: SegmentId) {
         segmentStates[id.value] = SegmentState.TRANSCRIBING
+    }
+
+    override suspend fun updateWindowProgress(run: TranscriptionRunEntity, processedMs: Long) {
+        windowProgress += processedMs
+        savedRun = run.copy(processedMs = processedMs)
     }
 
     override suspend fun confirmWindow(

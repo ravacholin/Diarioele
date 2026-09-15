@@ -196,6 +196,7 @@ private fun ProviderConfigSection(controller: ProviderSettingsController) {
         views.forEach { view ->
             var key by remember(view.provider) { mutableStateOf("") }
             var testResult by remember(view.provider) { mutableStateOf<ConnectionResult?>(null) }
+            var testing by remember(view.provider) { mutableStateOf(false) }
             Column(Modifier.fillMaxWidth().border(1.dp, Color.DarkGray).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(providerLabel(view.provider), fontSize = 18.sp, fontWeight = FontWeight.Black)
                 Text("Modelo: ${view.modelId}", color = Color.LightGray, fontSize = 12.sp)
@@ -220,12 +221,21 @@ private fun ProviderConfigSection(controller: ProviderSettingsController) {
                     refresh()
                 })
                 if (view.hasKey) {
-                    ArchiveButton("PROBAR CONEXIÓN", true, {
-                        scope.launch { testResult = controller.testConnection(view.provider) }
+                    ArchiveButton(if (testing) "PROBANDO…" else "PROBAR CONEXIÓN", !testing, {
+                        testing = true
+                        testResult = null
+                        scope.launch {
+                            testResult = controller.testConnection(view.provider)
+                            testing = false
+                        }
                     }, filled = false)
-                    ArchiveButton("BORRAR CLAVE", true, { controller.clearKey(view.provider); testResult = null; refresh() }, filled = false)
+                    ArchiveButton("BORRAR CLAVE", !testing, { controller.clearKey(view.provider); testResult = null; refresh() }, filled = false)
                 }
+                if (testing) Text("Probando conexión…", color = Color.LightGray, fontSize = 12.sp)
                 testResult?.let { Text(connectionLabel(it), color = Color.LightGray, fontSize = 12.sp) }
+                if (view.hasKey && (!view.enabled || !view.consented)) {
+                    Text("Para usarlo al procesar el audio: activá y dá consentimiento arriba.", color = Color.LightGray, fontSize = 12.sp)
+                }
             }
         }
     }
@@ -241,6 +251,9 @@ private fun connectionLabel(result: ConnectionResult) = when (result) {
     ConnectionResult.OK -> "Conexión correcta."
     ConnectionResult.INVALID_KEY -> "La clave no es válida."
     ConnectionResult.BILLING_WARNING -> "Advertencia: la cuenta podría tener facturación. Usá un proyecto sin facturación."
+    ConnectionResult.QUOTA -> "Límite gratuito agotado por ahora. Probá más tarde."
+    ConnectionResult.NO_NETWORK -> "Sin conexión a internet."
+    ConnectionResult.MODEL_OR_REQUEST -> "La clave parece válida, pero el proveedor rechazó el pedido (modelo o formato). Revisá el modelo configurado."
     ConnectionResult.UNAVAILABLE -> "No se pudo conectar en este momento."
     ConnectionResult.NOT_CONFIGURED -> "Falta guardar la clave."
 }

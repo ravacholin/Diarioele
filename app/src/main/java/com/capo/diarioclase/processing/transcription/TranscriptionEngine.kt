@@ -64,4 +64,13 @@ fun interface TranscriptionEngine {
 
 fun interface WindowTranscriptionEngine {
     suspend fun transcribe(window: AudioWindow): WindowTranscriptResult
+
+    /**
+     * Igual que [transcribe], reportando el progreso de la ventana (0..100) mientras el
+     * motor avanza. La implementación por defecto no reporta progreso intermedio.
+     */
+    suspend fun transcribe(
+        window: AudioWindow,
+        onProgress: (Int) -> Unit,
+    ): WindowTranscriptResult = transcribe(window)
 }

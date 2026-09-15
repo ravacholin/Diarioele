@@ -20,7 +20,13 @@ class WhisperTranscriptionEngine(
     private val loadMutex = Mutex()
     @Volatile private var loadedModelPath: String? = null
 
-    override suspend fun transcribe(window: AudioWindow): WindowTranscriptResult {
+    override suspend fun transcribe(window: AudioWindow): WindowTranscriptResult =
+        transcribe(window) {}
+
+    override suspend fun transcribe(
+        window: AudioWindow,
+        onProgress: (Int) -> Unit,
+    ): WindowTranscriptResult {
         if (window.samples.isEmpty() || window.endMs <= window.startMs) {
             return failure(TranscriptionFailure.INVALID_AUDIO, retryable = false)
         }
@@ -34,6 +40,7 @@ class WhisperTranscriptionEngine(
                         val result = nativeRuntime.transcribe(
                             samples = window.samples,
                             options = WhisperOptions(threads = threadCount),
+                            onProgress = onProgress,
                         )
                         if (continuation.isActive) continuation.resume(result)
                     } catch (error: Throwable) {

@@ -68,6 +68,10 @@ class RoomProcessingStore(
     override suspend fun markTranscribing(id: SegmentId) =
         dao.markTranscribing(id.value)
 
+    override suspend fun updateWindowProgress(run: TranscriptionRunEntity, processedMs: Long) {
+        dao.saveTranscriptionRun(run.copy(processedMs = processedMs, updatedAtEpochMs = clock.nowEpochMs()))
+    }
+
     override suspend fun confirmWindow(
         segmentId: SegmentId,
         spans: List<TranscriptSpan>,

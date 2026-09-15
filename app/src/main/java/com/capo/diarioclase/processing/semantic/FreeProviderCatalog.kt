@@ -15,7 +15,7 @@ object FreeProviderCatalog {
     val profiles: List<ProviderProfile> = listOf(
         ProviderProfile(
             provider = InferenceProvider.GEMINI,
-            modelId = "gemini-3-flash-preview",
+            modelId = "gemini-2.5-flash",
             enabled = false,
             consentVersion = null,
         ),
