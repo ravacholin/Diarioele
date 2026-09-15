@@ -407,17 +407,53 @@ Add entities with foreign keys and compound indices:
 
 ```kotlin
 @Entity(tableName = "interpretation_runs", indices = [Index("sessionId")])
-data class InterpretationRunEntity(/* ids, versions, state, timing, provenance, failure */)
+data class InterpretationRunEntity(
+    @PrimaryKey val id: String,
+    val sessionId: String,
+    val state: String,
+    val appVersion: String,
+    val whisperVersion: String,
+    val promptVersion: String,
+    val schemaVersion: String,
+    val validatorVersion: String,
+    val transcriptHash: String,
+    val mode: String,
+    val provenance: String?,
+    val failure: String?,
+    val startedAtEpochMs: Long,
+    val completedAtEpochMs: Long?,
+)
 
 @Entity(
     tableName = "interpretation_packets",
     primaryKeys = ["runId", "packetId"],
     indices = [Index("runId")],
 )
-data class InterpretationPacketEntity(/* ordinal, state, budget and timestamps */)
+data class InterpretationPacketEntity(
+    val runId: String,
+    val packetId: String,
+    val ordinal: Int,
+    val state: String,
+    val requestHash: String,
+    val requestBytes: Int,
+    val provider: String?,
+    val startedAtEpochMs: Long?,
+    val completedAtEpochMs: Long?,
+)
 
-@Entity(tableName = "provider_attempts", indices = [Index("runId", "packetId")])
-data class ProviderAttemptEntity(/* provider, model, attempt, cacheHit, outcome, duration */)
+@Entity(tableName = "provider_attempts", indices = [Index(value = ["runId", "packetId"])])
+data class ProviderAttemptEntity(
+    @PrimaryKey val id: String,
+    val runId: String,
+    val packetId: String,
+    val provider: String,
+    val modelId: String,
+    val attempt: Int,
+    val cacheHit: Boolean,
+    val outcome: String,
+    val durationMs: Long,
+    val startedAtEpochMs: Long,
+)
 
 @Entity(primaryKeys = ["claimId", "transcriptSpanId"], tableName = "claim_evidence")
 data class ClaimEvidenceEntity(val claimId: String, val transcriptSpanId: String, val ordinal: Int, val contextual: Boolean)
@@ -558,14 +594,24 @@ data class SemanticExpectation(
 
 - [ ] **Step 2: Write failing end-to-end scenarios**
 
-Include:
+Include the following executable shape:
 
-- clock reset across segments;
-- `EXERCISE + ASSIGNED`;
-- repeated `C1` keys in two packets;
-- a question that must not become an activity;
-- a corrected page;
-- prompt-injection text treated as transcript data.
+```kotlin
+@Test fun integrity_scenarios_match_required_and_prohibited_claims() {
+    listOf(
+        scenarioClockReset(),
+        scenarioAssignedExercise(),
+        scenarioRepeatedProviderKeys(),
+        scenarioStudentQuestion(),
+        scenarioCorrectedPage(),
+        scenarioPromptInjection(),
+    ).forEach { scenario ->
+        runner.assertMatches(scenario.input, scenario.expectation)
+    }
+}
+```
+
+Each factory contains the exact spans and typed `SemanticExpectation`; it does not store a prose-only prohibition.
 
 Run:
 
@@ -676,7 +722,19 @@ git commit -m "feat: reproject modes locally and expose semantic state"
 
 - [ ] **Step 1: Add the full-journey regression**
 
-The test uses two audio segments with reset clocks, duplicated provider keys, one performed exercise and one assigned exercise. Assert chronology, field placement, evidence after simulated reopen and zero provider calls after mode change.
+The test uses two audio segments with reset clocks, duplicated provider keys, one performed exercise and one assigned exercise:
+
+```kotlin
+@Test fun phase_5_2_integrity_journey() = runTest {
+    val first = journey.process(twoSegmentFixture())
+    assertEquals("14 (3)", first.draft.pages)
+    assertEquals("4", first.draft.homework)
+    val reopened = journey.reopen(first.sessionId)
+    assertEquals(2, reopened.claim("assigned-4").evidences.size)
+    journey.changeMode(InterpretationMode.EXHAUSTIVE)
+    assertEquals(0, journey.providerCallsAfterModeChange)
+}
+```
 
 - [ ] **Step 2: Run the complete verification**
 
