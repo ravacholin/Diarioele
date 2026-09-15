@@ -90,8 +90,10 @@ fun ArchiveScreen(state: ArchiveUiState, viewModel: ArchiveViewModel, onCapture:
                 item {
                     PermanentField("TEMAS", entry.topics)
                     PermanentField("ACTIVIDADES REALIZADAS", entry.activities)
-                    PermanentField("PÁGINAS", entry.pages)
-                    PermanentField("EJERCICIOS HECHOS", entry.completedExercises)
+                    PermanentField("PÁGINAS Y EJERCICIOS", entry.pages)
+                    if (entry.completedExercises.isNotBlank()) {
+                        PermanentField("EJERCICIOS HECHOS", entry.completedExercises)
+                    }
                     PermanentField("TAREA", entry.homework)
                 }
                 item {
@@ -126,8 +128,10 @@ fun ArchiveScreen(state: ArchiveUiState, viewModel: ArchiveViewModel, onCapture:
                     TextButton(onClick = { viewModel.onEdit(fields.copy(level = null)) }, enabled = !state.busy, shape = RectangleShape) { Text("SIN NIVEL") }
                     ArchiveTextField("TEMAS", fields.topics, { viewModel.onEdit(fields.copy(topics = it)) }, !state.busy)
                     ArchiveTextField("ACTIVIDADES REALIZADAS", fields.activities, { viewModel.onEdit(fields.copy(activities = it)) }, !state.busy)
-                    ArchiveTextField("PÁGINAS", fields.pages, { viewModel.onEdit(fields.copy(pages = it)) }, !state.busy)
-                    ArchiveTextField("EJERCICIOS HECHOS", fields.completedExercises, { viewModel.onEdit(fields.copy(completedExercises = it)) }, !state.busy)
+                    ArchiveTextField("PÁGINAS Y EJERCICIOS", fields.pages, { viewModel.onEdit(fields.copy(pages = it)) }, !state.busy)
+                    if (fields.completedExercises.isNotBlank()) {
+                        ArchiveTextField("EJERCICIOS HECHOS", fields.completedExercises, { viewModel.onEdit(fields.copy(completedExercises = it)) }, !state.busy)
+                    }
                     ArchiveTextField("TAREA", fields.homework, { viewModel.onEdit(fields.copy(homework = it)) }, !state.busy)
                 }
                 item {

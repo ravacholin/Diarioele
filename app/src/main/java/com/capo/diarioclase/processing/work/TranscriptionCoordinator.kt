@@ -356,8 +356,14 @@ class TranscriptionCoordinator(
             mode,
             values(presentation.accepted, ClaimCategory.TOPIC),
             values(presentation.accepted, ClaimCategory.ACTIVITY),
-            values(presentation.accepted, ClaimCategory.PAGE),
-            values(presentation.accepted, ClaimCategory.EXERCISE),
+            // Página y ejercicio combinados en un solo campo: "14 (3, a, b, 8)", una
+            // página por línea. Cada ejercicio se agrupa bajo la última página mencionada
+            // antes (línea temporal del audio), sirva el camino local o el de IA.
+            PagesAndExercisesComposer.compose(
+                claims.filter { it.active },
+                presentation.accepted.mapTo(HashSet()) { it.id },
+            ),
+            "",
             values(presentation.accepted, ClaimCategory.HOMEWORK),
             presentation.accepted,
             presentation.confirm,
@@ -463,4 +469,60 @@ class TranscriptionCoordinator(
     ) = claims.filter { it.category == category }
         .joinToString("\n") { it.value }
         .trim()
+}
+
+/**
+ * Combina páginas y ejercicios en un único campo, agrupando cada ejercicio bajo la última
+ * página mencionada antes en la línea temporal del audio. Resultado: `14 (3, a, b, 8)`, una
+ * página por línea. Funciona igual para el camino local (que ya trae "(p. N)" en el valor)
+ * y para el de IA (que da página y ejercicio como claims separados).
+ *
+ * `activeClaims` debe venir en orden de grabación (bloque + tiempo), como ya lo entrega el
+ * pipeline; `acceptedIds` son los ids de claims que el modo de interpretación acepta mostrar
+ * (la página se usa siempre como contexto, aunque no esté aceptada por sí sola).
+ */
+internal object PagesAndExercisesComposer {
+    fun compose(activeClaims: List<EvidenceClaim>, acceptedIds: Set<String>): String {
+        val groups = LinkedHashMap<String, MutableList<String>>()
+        val orphans = mutableListOf<String>()
+        var currentPage: String? = null
+        activeClaims.forEach { claim ->
+            when (claim.category) {
+                ClaimCategory.PAGE -> {
+                    val page = pageLabel(claim)
+                    currentPage = page
+                    if (claim.id in acceptedIds) groups.getOrPut(page) { mutableListOf() }
+                }
+                ClaimCategory.EXERCISE -> {
+                    if (claim.id !in acceptedIds) return@forEach
+                    val label = exerciseLabel(claim.value)
+                    if (label.isEmpty()) return@forEach
+                    val page = currentPage
+                    if (page != null) {
+                        val list = groups.getOrPut(page) { mutableListOf() }
+                        if (label !in list) list += label
+                    } else if (label !in orphans) {
+                        orphans += label
+                    }
+                }
+                else -> Unit
+            }
+        }
+        val lines = groups.map { (page, exercises) ->
+            if (exercises.isEmpty()) page else "$page (${exercises.joinToString(", ")})"
+        }.toMutableList()
+        if (orphans.isNotEmpty()) lines += orphans.joinToString(", ")
+        return lines.joinToString("\n").trim()
+    }
+
+    private fun pageLabel(claim: EvidenceClaim): String {
+        val source = claim.normalizedValue.ifBlank { claim.value }
+        return Regex("\\d+").find(source)?.value ?: claim.value.trim()
+    }
+
+    private fun exerciseLabel(value: String): String =
+        value
+            .replace(Regex("\\s*\\(p\\.[^)]*\\)\\s*$"), "")
+            .replace(Regex("^(?:ejercicios?|actividades?)\\s+", RegexOption.IGNORE_CASE), "")
+            .trim()
 }

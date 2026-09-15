@@ -8,8 +8,12 @@ import com.capo.diarioclase.data.db.SessionId
 import com.capo.diarioclase.data.db.SessionState
 import com.capo.diarioclase.data.db.TranscriptionCheckpointEntity
 import com.capo.diarioclase.data.db.TranscriptionRunEntity
+import com.capo.diarioclase.processing.evidence.ClaimCategory
+import com.capo.diarioclase.processing.evidence.ClaimOrigin
+import com.capo.diarioclase.processing.evidence.ClaimStatus
 import com.capo.diarioclase.processing.evidence.DiaryDraft
 import com.capo.diarioclase.processing.evidence.EvidenceClaim
+import com.capo.diarioclase.processing.evidence.EvidenceRef
 import com.capo.diarioclase.processing.evidence.InterpretationMode
 import com.capo.diarioclase.processing.evidence.LiteralClaimExtractor
 import com.capo.diarioclase.processing.transcription.AudioWindow
@@ -45,10 +49,31 @@ class TranscriptionCoordinatorTest {
 
         assertTrue(result is ProcessingOutcome.Complete)
         assertEquals(listOf("a", "b"), store.completedSegments)
-        assertEquals("42", store.generatedDraft?.pages)
-        assertEquals("3 (p. 42)", store.generatedDraft?.exercises)
+        assertEquals("42 (3)", store.generatedDraft?.pages)
+        assertEquals("", store.generatedDraft?.exercises)
         assertEquals(SessionState.AWAITING_REVIEW, store.state)
         assertEquals(TranscriptionRunState.COMPLETED.name, store.savedRun?.state)
+    }
+
+    @Test
+    fun `pages and exercises are combined into one grouped field`() {
+        val ev = EvidenceRef(BlockId("b"), 0, 1, "x")
+        fun claim(id: String, category: ClaimCategory, value: String, normalized: String = value) =
+            EvidenceClaim(id, category, value, normalized, ClaimStatus.PERFORMED, .95, ClaimOrigin.SEMANTIC, ev)
+        val claims = listOf(
+            claim("p1", ClaimCategory.PAGE, "página 14", "14"),
+            claim("e1", ClaimCategory.EXERCISE, "3"),
+            claim("e2", ClaimCategory.EXERCISE, "a"),
+            claim("e3", ClaimCategory.EXERCISE, "b"),
+            claim("e4", ClaimCategory.EXERCISE, "8"),
+            claim("p2", ClaimCategory.PAGE, "22", "22"),
+            claim("e5", ClaimCategory.EXERCISE, "1"),
+            claim("e6", ClaimCategory.EXERCISE, "2"),
+        )
+
+        val text = PagesAndExercisesComposer.compose(claims, claims.mapTo(HashSet()) { it.id })
+
+        assertEquals("14 (3, a, b, 8)\n22 (1, 2)", text)
     }
 
     @Test

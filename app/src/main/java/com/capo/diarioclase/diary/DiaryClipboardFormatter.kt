@@ -11,7 +11,7 @@ class DiaryClipboardFormatter {
         val fields = listOf(
             "Temas" to topics,
             "Actividades realizadas" to activities,
-            "Páginas" to pages,
+            "Páginas y ejercicios" to pages,
             "Ejercicios hechos" to exercises,
             "Tarea" to homework,
         ).filter { (_, value) -> value.isNotBlank() }
