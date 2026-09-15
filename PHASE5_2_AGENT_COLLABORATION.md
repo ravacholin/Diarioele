@@ -73,15 +73,23 @@ Q0 se integra y queda verde antes de iniciar trabajo paralelo.
 | Q2 Prompts, schemas y corrección real | `feature/phase6-task-q2-provider-quality` | prompt y adaptadores |
 | Q3 Fusión local + IA | `feature/phase6-task-q3-hybrid-merge` | merger y reducción |
 | Q4 Feedback y revisión por campo | `feature/phase6-task-q4-feedback` | revisiones, ViewModel y UI |
-| Q5 Observabilidad completa | `feature/phase6-task-q5-observability` | estado visible y notificación |
+| Q4 Feedback y revisión por campo | `feature/phase6-task-q4-feedback` | revisiones, ViewModel y UI |
 
-Q1–Q5 parten de Q0 verde. Q4 y Q5 consumen el esquema y journal integrados en I4/I5, pero no dependen entre sí.
+Q1–Q4 parten de Q0 verde. Q4 consume el esquema y journal integrados en I4/I5.
 
-### Ola Q2
+### Ola Q2, trabajo paralelo
 
 | Tarea | Rama | Dependencia |
 |---|---|---|
-| Q6 Corpus local y JSONL | `feature/phase6-task-q6-local-corpus` | Q1, Q4 |
+| Q5 Observabilidad completa | `feature/phase6-task-q5-observability` | Q4 |
+| Q6 Backend de corpus local y JSONL | `feature/phase6-task-q6-local-corpus` | Q1, Q4 |
+
+Q5 posee la UI durante esta ola. Q6 no modifica `CaptureViewModel` ni `CaptureScreen`; la integración visual del corpus pertenece a Q7.
+
+### Ola Q3
+
+| Tarea | Rama | Dependencia |
+|---|---|---|
 | Q7 Integración, release y benchmark | `feature/phase6-task-q7-release` | Q1–Q6 |
 
 ## DAG
@@ -94,10 +102,9 @@ flowchart TD
     W1 --> I8["I8 Integración 0.5.2"]
     I7 --> I8
     I8 --> Q0["Q0 Contratos de calidad"]
-    Q0 --> Q1["Q1–Q5 en paralelo"]
-    Q1 --> Q6["Q6 Corpus local"]
-    Q1 --> Q7["Q7 Release 0.6.0"]
-    Q6 --> Q7
+    Q0 --> Q1["Q1–Q4 en paralelo"]
+    Q1 --> Q2["Q5–Q6 en paralelo"]
+    Q2 --> Q7["Q7 Release 0.6.0"]
 ```
 
 ## Archivos reservados
