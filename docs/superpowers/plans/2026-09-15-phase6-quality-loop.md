@@ -205,6 +205,7 @@ git commit -m "feat: ground semantic claims in local evidence"
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/OpenAiCompatibleProviderClient.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/FreeInferenceRouter.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/RealProviderConnectionTester.kt`
+- Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/InferenceHttpTransport.kt`
 - Test: `app/src/test/java/com/capo/diarioclase/processing/semantic/InterpretationPromptFactoryTest.kt`
 - Test: `app/src/test/java/com/capo/diarioclase/processing/semantic/GeminiProviderClientTest.kt`
 - Test: `app/src/test/java/com/capo/diarioclase/processing/semantic/FreeInferenceRouterTest.kt`
@@ -283,8 +284,6 @@ git commit -m "feat: enforce native schemas and corrective inference"
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/RouterSemanticInterpreter.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/SemanticClaimReducer.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/work/SemanticInterpreter.kt`
-- Modify: `app/src/main/java/com/capo/diarioclase/processing/work/TranscriptionCoordinator.kt`
-- Modify: `app/src/main/java/com/capo/diarioclase/processing/work/RoomProcessingStore.kt`
 - Test: `app/src/test/java/com/capo/diarioclase/processing/semantic/HybridClaimMergerTest.kt`
 - Test: `app/src/test/java/com/capo/diarioclase/processing/semantic/RouterSemanticInterpreterTest.kt`
 
@@ -318,7 +317,7 @@ Use canonical key `category + normalizedValue + status target`. For matching cla
 
 - [ ] **Step 4: Integrate the merger**
 
-`RoomProcessingStore` loads markers for every block and converts them to `LocalInterpretationSignals`. Marker ids and block ids remain local and are never placed in `InterpretationRequest`.
+`RouterSemanticInterpreter` receives `LocalInterpretationSignals` through `SemanticInterpreter`. During this task use explicit signals in tests; production loading and wiring belongs to Q7. Marker ids and block ids remain local and are never placed in `InterpretationRequest`.
 
 `RouterSemanticInterpreter` always computes local candidates before routing. For every packet:
 
@@ -350,7 +349,7 @@ git commit -m "feat: merge local and remote pedagogical claims"
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/work/RoomProcessingStore.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/ui/capture/CaptureViewModel.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/ui/capture/CaptureScreen.kt`
-- Test: `app/src/androidTest/java/com/capo/diarioclase/data/db/DiarioMigrationTest.kt`
+- Test: `app/src/test/java/com/capo/diarioclase/data/db/DiarioMigrationTest.kt`
 - Test: `app/src/test/java/com/capo/diarioclase/ui/capture/CaptureViewModelTest.kt`
 - Create: `app/schemas/com.capo.diarioclase.data.db.DiarioDatabase/7.json`
 
@@ -402,7 +401,7 @@ Add an edited-field mask to drafts. Migrate legacy `userEdited=true` conservativ
 
 ```bash
 ./gradlew testDebugUnitTest --tests '*CaptureViewModelTest'
-./gradlew connectedDebugAndroidTest --tests '*DiarioMigrationTest'
+./gradlew testDebugUnitTest --tests '*DiarioMigrationTest'
 ```
 
 Expected: PASS.
@@ -469,7 +468,7 @@ git add app/src/main/java/com/capo/diarioclase/ui/capture app/src/main/java/com/
 git commit -m "feat: show inference progress and provenance"
 ```
 
-### Task Q6: Create an optional local regression corpus
+### Task Q6: Create the local regression corpus backend
 
 **Branch:** `feature/phase6-task-q6-local-corpus`
 
@@ -479,8 +478,7 @@ git commit -m "feat: show inference progress and provenance"
 - Create: `app/src/main/java/com/capo/diarioclase/processing/evaluation/LocalExampleRepository.kt`
 - Create: `app/src/main/java/com/capo/diarioclase/processing/evaluation/JsonlExampleCodec.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/diary/cleanup/CleanupCoordinator.kt`
-- Modify: `app/src/main/java/com/capo/diarioclase/ui/capture/CaptureViewModel.kt`
-- Modify: `app/src/main/java/com/capo/diarioclase/ui/capture/CaptureScreen.kt`
+- Create: `app/src/main/java/com/capo/diarioclase/processing/evaluation/LocalExampleDocumentService.kt`
 - Test: `app/src/test/java/com/capo/diarioclase/processing/evaluation/LocalExampleRepositoryTest.kt`
 - Test: `app/src/test/java/com/capo/diarioclase/processing/evaluation/JsonlExampleCodecTest.kt`
 
@@ -520,9 +518,9 @@ data class LocalEvaluationExample(
 
 Use app-private no-backup storage. Export/import only through Android Storage Access Framework after explicit user action.
 
-- [ ] **Step 3: Add approval choice**
+- [ ] **Step 3: Add explicit corpus operations**
 
-Default action remains approval and full cleanup. A separate explicit choice saves a previewed redacted example before cleanup. Add Delete all examples in settings.
+Implement `preview(sessionId)`, `savePreview(preview)`, `deleteAll()`, `exportJsonl(uri)` and `importJsonl(uri)` in `LocalExampleDocumentService`. No approval flow calls these methods automatically. Default cleanup remains unchanged. Q7 wires the explicit UI actions after the backend tests pass.
 
 - [ ] **Step 4: Run privacy and cleanup tests**
 
@@ -535,7 +533,7 @@ Expected: PASS; default approval leaves no corpus file.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add app/src/main/java/com/capo/diarioclase/processing/evaluation app/src/main/java/com/capo/diarioclase/diary/cleanup app/src/main/java/com/capo/diarioclase/ui/capture app/src/test
+git add app/src/main/java/com/capo/diarioclase/processing/evaluation app/src/main/java/com/capo/diarioclase/diary/cleanup app/src/test
 git commit -m "feat: add opt-in local evaluation corpus"
 ```
 
@@ -544,6 +542,11 @@ git commit -m "feat: add opt-in local evaluation corpus"
 **Branch:** `feature/phase6-task-q7-release`
 
 **Files:**
+- Modify: `app/src/main/java/com/capo/diarioclase/processing/work/RoomProcessingStore.kt`
+- Modify: `app/src/main/java/com/capo/diarioclase/processing/work/TranscriptionCoordinator.kt`
+- Modify: `app/src/main/java/com/capo/diarioclase/ui/capture/CaptureViewModel.kt`
+- Modify: `app/src/main/java/com/capo/diarioclase/ui/capture/CaptureScreen.kt`
+- Modify: `app/src/main/java/com/capo/diarioclase/MainActivity.kt`
 - Modify: `app/src/test/java/com/capo/diarioclase/processing/evaluation/SemanticEvaluationRunner.kt`
 - Create: `app/src/test/java/com/capo/diarioclase/processing/evaluation/SemanticQualityReportTest.kt`
 - Modify: `app/src/test/java/com/capo/diarioclase/FullJourneyTest.kt`
@@ -577,11 +580,15 @@ data class EvaluationSummary(
 
 Derive precision/recall/F1 only when denominators are nonzero. Include failing case identifiers in assertion messages.
 
-- [ ] **Step 2: Add full-journey tests**
+- [ ] **Step 2: Wire signals, review and corpus actions**
+
+`RoomProcessingStore` loads block markers into `LocalInterpretationSignals`; `TranscriptionCoordinator` passes them to the semantic interpreter. `CaptureViewModel` and `CaptureScreen` add explicit Preview and save local example actions, plus Delete all examples in settings. `MainActivity` owns Storage Access Framework launchers for JSONL import/export. Default approval still performs full cleanup without saving an example.
+
+- [ ] **Step 3: Add full-journey tests**
 
 Cover local-only, Gemini-valid, Groq fallback, all remote failures, repair success, repair failure, mixed provenance, user correction, corpus opt-in, default cleanup and mode reprojection. All providers are fakes.
 
-- [ ] **Step 3: Run complete verification**
+- [ ] **Step 4: Run complete verification**
 
 ```bash
 ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --max-workers=2 -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
@@ -589,7 +596,7 @@ Cover local-only, Gemini-valid, Groq fallback, all remote failures, repair succe
 
 Expected: exit 0 and a semantic report with no prohibited claim in the frozen regression set.
 
-- [ ] **Step 4: Prepare release and physical protocol**
+- [ ] **Step 5: Prepare release and physical protocol**
 
 Set:
 
@@ -600,12 +607,12 @@ versionName = "0.6.0-quality-loop"
 
 The Moto g max protocol covers a 10-second session, a 90-minute synthetic/imported transcript, offline fallback, cache hit, 429, timeout, invalid JSON, numeric hallucination, repair, Continue local, pause, kill/restart, accept/reject/correct, save-example preview, JSONL export and delete-all.
 
-- [ ] **Step 5: Verify privacy and commit**
+- [ ] **Step 6: Verify privacy and commit**
 
 ```bash
 rg -n --hidden --glob '!build/**' --glob '!.git/**' 'AIza|gsk_|sk-or-v1-' .
 rg -n 'transcript|credential|authorization|x-goog-api-key' app/src/main/java/com/capo/diarioclase/processing/work app/src/main/java/com/capo/diarioclase/processing/evaluation
-git add app/src test PHASE5_HANDOFF.md PHASE6_QUALITY_DEVICE_TEST.md AGENTS.md
+git add app/src app/build.gradle.kts PHASE5_HANDOFF.md PHASE6_QUALITY_DEVICE_TEST.md AGENTS.md
 git commit -m "release: prepare 0.6.0 quality loop"
 ```
 
