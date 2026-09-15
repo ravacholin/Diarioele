@@ -33,6 +33,7 @@ data class RawClaim(
     val declaredConfidence: Double = confidence,
     val effectiveConfidence: Double = confidence,
     val transcriptSpanIds: List<String> = emptyList(),
+    val claimOrdinal: Int = 0,
 )
 data class EvidenceClaim(
     val id: String,
@@ -54,6 +55,7 @@ data class EvidenceClaim(
     val declaredConfidence: Double = confidence,
     val effectiveConfidence: Double = confidence,
     val transcriptSpanIds: List<String> = emptyList(),
+    val claimOrdinal: Int = 0,
 )
 data class ClaimPresentation(val accepted: List<EvidenceClaim>, val confirm: List<EvidenceClaim>, val hidden: List<EvidenceClaim>) {
     val visibleCount get() = accepted.size + confirm.size

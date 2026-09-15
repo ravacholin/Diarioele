@@ -79,8 +79,15 @@ data class InterpretationPacket(
     val sourceSpanIds: Map<String, String>,
 ) {
     init {
-        require(request.spans.map { it.publicId }.toSet() == sourceSpanIds.keys) {
+        val publicIds = request.spans.map { it.publicId }
+        require(publicIds.size == publicIds.toSet().size) {
+            "Public span ids must be unique inside a packet."
+        }
+        require(publicIds.toSet() == sourceSpanIds.keys) {
             "Every public span id must map to exactly one local transcript span id."
+        }
+        require(sourceSpanIds.values.all { it.isNotBlank() }) {
+            "Local transcript span ids must not be blank."
         }
     }
 }
