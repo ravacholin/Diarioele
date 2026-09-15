@@ -4,7 +4,7 @@
 
 ## Estado actual
 
-La Fase 5 está casi completa. **Las Tasks 1–8 están integradas y verdes** en `feature/phase5-contextual-interpretation` (`695115a`): el motor de inferencia gratuito está cableado al procesamiento y hay UI de configuración de proveedores. **Solo resta Task 9** (release `0.5.0-free-router` + prueba física en el Moto g max), que requiere el teléfono del usuario.
+La Fase 5 está **completa a nivel de código**. **Las Tasks 1–9 (parte de código) están integradas y verdes** en `feature/phase5-contextual-interpretation` (`5ac8132`): motor de inferencia gratuito cableado al procesamiento, UI de configuración de proveedores y versión `0.5.0-free-router`. Lo **único pendiente es la prueba física en el Moto g max** (protocolo en `PHASE5_FREE_INFERENCE_DEVICE_TEST.md`), que requiere el teléfono del usuario. Ninguna CI verde la reemplaza.
 
 La Fase 4 permanece completa, validada por CI y probada con éxito en el Moto g max. La rama de Fase 5 parte de esa base funcional y no debe alterar el motor Whisper local.
 
@@ -58,7 +58,7 @@ La garantía de costo requiere claves de cuentas o proyectos sin facturación. L
 | 6. Caché Room | COMPLETA | Task 1 | PR #10, run #119 verde, `0b144da` → merge `a9812c0` |
 | 7. Router y fallback | COMPLETA | Tasks 2, 4, 5 y 6 | PR #11, run #124 verde, `bde19f9` → merge `9886202` |
 | 8. Integración y UI | COMPLETA | Task 7 | PR #12, run #130 verde, `5fbb38d` → merge `695115a` |
-| 9. Feedback y release | EN CURSO | Task 8 | versión `0.5.0-free-router` + protocolo listos; falta prueba física |
+| 9. Feedback y release | CÓDIGO COMPLETO | Task 8 | PR #13, run #134 verde, `ab5caa7` → merge `5ac8132`; falta prueba física |
 
 ## Siguiente acción exacta
 
@@ -178,6 +178,7 @@ Después de cada integración, reemplazar el bloque anterior con el mismo format
 - `a9812c019cf6fedc53ddf89c508bed918268980e`: PR #10 (Task 6) integrado después de run #119 verde. Cierra la ola 2.
 - `9886202996108f43f6c8099383d49bce49bab429`: PR #11 (Task 7) integrado después de run #124 verde. Cierra la ola 3.
 - `695115aabc6ea3185ac74a907ed25ae6e910d281`: PR #12 (Task 8) integrado después de run #130 verde. Solo resta Task 9.
+- `5ac81325672825339feb9a068f898e3439df7847`: PR #13 (Task 9 código: versión `0.5.0-free-router` + protocolo) integrado después de run #134 verde. Fase 5 completa a nivel de código; resta la prueba física.
 
 ## Condición de cierre
 

@@ -54,10 +54,6 @@ Antes de trabajar, comprobar que estos datos no hayan sido superados por un chec
 
 ## Próxima tarea
 
-Las **Tasks 1–8** quedaron integradas y verdes en `feature/phase5-contextual-interpretation` (`695115a`): contrato, catálogo/credenciales, paquetes, adaptadores, validador/reductor/projector, caché Room (migración 4→5), router con fallback local, integración en el procesamiento y UI de configuración de proveedores. **Solo resta Task 9**:
+La **Fase 5 está completa a nivel de código**: las Tasks 1–9 (parte de código) quedaron integradas y verdes en `feature/phase5-contextual-interpretation` (`5ac8132`), con la versión `0.5.0-free-router`. Lo **único pendiente es la prueba física en el Moto g max** (protocolo en `PHASE5_FREE_INFERENCE_DEVICE_TEST.md`), que requiere el dispositivo del usuario y ninguna CI reemplaza.
 
-```text
-Task 9 -> feature/phase5-task-09-release
-```
-
-Task 9 sube la versión a `0.5.0-free-router`, escribe el protocolo de prueba física y **cierra la fase con la prueba en el Moto g max (requiere el dispositivo del usuario)**. Las instrucciones exactas y el estado se encuentran en `PHASE5_HANDOFF.md`.
+Pendientes menores declarados para una iteración futura (no bloquean la prueba): el hook de fallos simulados en debug (para encadenar 429 entre proveedores sin quitar la red) y el panel de estado de ejecución (procedencia `MIXTO/LOCAL`, `REINTENTAR`/`CONTINUAR LOCAL`). El estado y las instrucciones están en `PHASE5_HANDOFF.md`.
