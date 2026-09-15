@@ -16,6 +16,7 @@ import com.capo.diarioclase.processing.evidence.EvidenceClaim
 import com.capo.diarioclase.processing.evidence.EvidenceRef
 import com.capo.diarioclase.processing.evidence.InterpretationMode
 import com.capo.diarioclase.processing.evidence.LiteralClaimExtractor
+import com.capo.diarioclase.processing.evidence.PagesAndExercisesComposer
 import com.capo.diarioclase.processing.transcription.AudioWindow
 import com.capo.diarioclase.processing.transcription.TranscriptDeduplicator
 import com.capo.diarioclase.processing.transcription.TranscriptSpan
@@ -71,7 +72,7 @@ class TranscriptionCoordinatorTest {
             claim("e6", ClaimCategory.EXERCISE, "2"),
         )
 
-        val text = PagesAndExercisesComposer.compose(claims, claims.mapTo(HashSet()) { it.id })
+        val text = PagesAndExercisesComposer().compose(claims)
 
         assertEquals("14 (3, a, b, 8)\n22 (1, 2)", text)
     }
