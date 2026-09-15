@@ -54,12 +54,11 @@ Antes de trabajar, comprobar que estos datos no hayan sido superados por un chec
 
 ## Próxima tarea
 
-Task 0 (PR #4 / run #96) y Task 1 (PR #5 / run #101, merge `4e7c302`) quedaron integradas y verdes. El contrato común está congelado en `processing/semantic/InferenceModels.kt`. Se habilita la **ola 1**: Tasks 2, 3 y 4, cada una en su rama y con PR contra `feature/phase5-contextual-interpretation`:
+La **ola 1** (Tasks 1, 2, 3 y 4) quedó integrada y verde en `feature/phase5-contextual-interpretation` (`7178106`): contrato, catálogo/credenciales cifradas, paquetes contextuales y adaptadores Gemini/Groq/OpenRouter. Se habilita la **ola 2**: Tasks 5 y 6, cada una en su rama y con PR contra `feature/phase5-contextual-interpretation`:
 
 ```text
-Task 2 -> feature/phase5-task-02-credentials
-Task 3 -> feature/phase5-task-03-packets
-Task 4 -> feature/phase5-task-04-provider-clients
+Task 5 -> feature/phase5-task-05-validation
+Task 6 -> feature/phase5-task-06-cache
 ```
 
-Ninguna tarea de la ola 1 debe redefinir los enums, modelos o políticas congelados en Task 1. Las instrucciones exactas y el estado se encuentran en `PHASE5_HANDOFF.md`.
+Ninguna tarea debe redefinir los enums, modelos o políticas congelados en Task 1, ni depender de una tarea hermana no integrada. Las instrucciones exactas y el estado se encuentran en `PHASE5_HANDOFF.md`.

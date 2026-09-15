@@ -4,7 +4,7 @@
 
 ## Estado actual
 
-La Fase 5 está en implementación colaborativa. **Task 1 (contrato común y escenarios sintéticos) quedó integrada y verde**; con eso se habilita la ola 1 (Tasks 2, 3 y 4 en paralelo).
+La Fase 5 está en implementación colaborativa. **La ola 1 (Tasks 1, 2, 3 y 4) está integrada y verde** en `feature/phase5-contextual-interpretation` (`7178106`); con eso se habilita la ola 2 (Task 5: validación y reducción; Task 6: caché Room).
 
 La Fase 4 permanece completa, validada por CI y probada con éxito en el Moto g max. La rama de Fase 5 parte de esa base funcional y no debe alterar el motor Whisper local.
 
@@ -51,34 +51,34 @@ La garantía de costo requiere claves de cuentas o proyectos sin facturación. L
 |---|---|---|---|
 | 0. Readiness colaborativo | COMPLETA | ninguna | PR #4, run #96 verde, `cc456378` |
 | 1. Contratos y escenarios | COMPLETA | Task 0 completa | PR #5, run #101 verde, `f22354b` → merge `4e7c302` |
-| 2. Catálogo y credenciales | HABILITADA | Task 1 | sin PR |
-| 3. Paquetes contextuales | HABILITADA | Task 1 | sin PR |
-| 4. Prompt y clientes HTTP | HABILITADA | Task 1 | sin PR |
-| 5. Validación y reducción | BLOQUEADA | Tasks 3 y 4 | sin PR |
-| 6. Caché Room | BLOQUEADA | Task 1 | sin PR |
+| 2. Catálogo y credenciales | COMPLETA | Task 1 | PR #7, run #107 verde, `2ed49c4` → merge `53ee947` |
+| 3. Paquetes contextuales | COMPLETA | Task 1 | PR #6, run #105 verde, `f68b841` → merge `9054aaf` |
+| 4. Prompt y clientes HTTP | COMPLETA | Task 1 | PR #8, run #113 verde, `5b73b29` → merge `7178106` |
+| 5. Validación y reducción | HABILITADA | Tasks 3 y 4 | sin PR |
+| 6. Caché Room | HABILITADA | Task 1 | sin PR |
 | 7. Router y fallback | BLOQUEADA | Tasks 2, 4, 5 y 6 | sin PR |
 | 8. Integración y UI | BLOQUEADA | Task 7 | sin PR |
 | 9. Feedback y release | BLOQUEADA | Task 8 | sin PR |
 
 ## Siguiente acción exacta
 
-Task 1 está integrada y el contrato quedó congelado. Se habilita la **ola 1**: Tasks 2, 3 y 4, cada una en su rama y con PR contra `feature/phase5-contextual-interpretation`.
+La **ola 1** (Tasks 2, 3 y 4) está integrada y verde. Se habilita la **ola 2**: Tasks 5 y 6, cada una en su rama y con PR contra `feature/phase5-contextual-interpretation`.
 
 ```text
-Task 2 -> feature/phase5-task-02-credentials
-Task 3 -> feature/phase5-task-03-packets
-Task 4 -> feature/phase5-task-04-provider-clients
+Task 5 -> feature/phase5-task-05-validation
+Task 6 -> feature/phase5-task-06-cache
 ```
 
-Reglas de la ola 1:
+Reglas de la ola 2:
 
-- Cada rama parte del último head verde de la integración (`4e7c302`).
-- Task 4 puede importar el contrato de Task 1 pero no inventar variantes; coordina con Task 2 solo por `ProviderProfile` y el store de credenciales.
-- Ninguna redefine enums, modelos ni políticas ya congelados en `processing/semantic/InferenceModels.kt`.
-- Task 5 espera Tasks 3 y 4; Task 6 puede arrancar tras Task 1 pero se integra antes de Task 7.
+- Cada rama parte del último head verde de la integración (`7178106`).
+- Task 5 (validador, reductor, procedencia, projector) amplía `ClaimOrigin` con `GEMINI/GROQ/OPENROUTER` y construye `EvidenceRef` desde spans locales; nunca acepta evidencia textual del modelo.
+- Task 6 (caché Room) agrega la entidad `interpretation_cache`, la migración 4→5 y suma la caché a la limpieza temporal; se integra antes de Task 7.
+- Si ambas tocan `FullJourneyTest.kt`, esa prueba queda reservada para Task 6 o el integrador.
+- Ninguna redefine enums, modelos ni políticas congelados en `processing/semantic/InferenceModels.kt`, ni depende de una tarea hermana no integrada (lección de Task 4: dependía de `FreeProviderCatalog` de Task 2 y rompió su rama).
 - No marcar una tarea como completa sin CI verde de su PR.
 
-Contrato congelado disponible en `app/src/main/java/com/capo/diarioclase/processing/semantic/` (`InferenceModels.kt`, `InferenceProviderClient.kt`) y fixtures en `app/src/test/.../semantic/`.
+Artefactos disponibles tras la ola 1: contrato (`InferenceModels.kt`, `InferenceProviderClient.kt`), catálogo/credenciales (`FreeProviderCatalog`, `ProviderSettingsStore`, `ProviderCredentialStore`), paquetes (`InterpretationPacketBuilder`) y adaptadores (`InterpretationPromptFactory`, `InferenceHttpTransport`, `GeminiProviderClient`, `OpenAiCompatibleProviderClient`).
 
 ## Restricciones de implementación
 
@@ -119,16 +119,19 @@ No se necesita audio real ni corpus. Cada error observado luego en el teléfono 
 Último checkpoint integrado:
 
 ```text
-Task integrada: 1 — Contrato común y escenarios sintéticos
-PR: #5 (base feature/phase5-contextual-interpretation)
-Base SHA: 4af41616b4bbfe5a824cce304d61eae5ff770346
-Head SHA: f22354b02925ac7bcc4d242df62a152c9eca19bb
-Merge SHA: 4e7c30238fdfe0393e6b5432bfea168c9a9ea418
-Workflow: run #101 (pull_request) SUCCESS y run #100 (push) SUCCESS
-Pruebas: testDebugUnitTest (incl. InferenceContractTest) + lintDebug + assembleDebug + assembleDebugAndroidTest
-Resultado: verde; contrato congelado (modelos, interfaz, orden de spans, estado→campo, códec JSON, fixtures)
-Riesgos pendientes: ninguno de producción; la validación semántica adversarial es de Task 5
-Próxima tarea habilitada: ola 1 (Tasks 2, 3 y 4)
+Ola integrada: 1 (Tasks 2, 3 y 4) sobre Task 1
+Task 1: PR #5, head f22354b, merge 4e7c302, run #101 SUCCESS
+Task 3: PR #6, head f68b841, merge 9054aaf, run #105 SUCCESS
+Task 2: PR #7, head 2ed49c4, merge 53ee947, run #107 SUCCESS
+         (run de push #106 rojo por 429 de Maven en dependencias, no del código)
+Task 4: PR #8, head 5b73b29, merge 7178106, run #113 SUCCESS
+         (primer intento 97f2b35 rojo: dependía de FreeProviderCatalog de Task 2;
+          se corrigió para que la rama sea autónoma según el DAG)
+Base SHA de la ola 2: 7178106ec0f3c3a95fe37e8cccb698a2f85579d6
+Pruebas: testDebugUnitTest + lintDebug + assembleDebug + assembleDebugAndroidTest
+Resultado: verde; catálogo, credenciales cifradas, paquetes y adaptadores integrados
+Riesgos pendientes: la validación semántica adversarial y la caché son de la ola 2
+Próxima ola habilitada: 2 (Task 5 con Tasks 3 y 4; Task 6 tras Task 1)
 ```
 
 Después de cada integración, reemplazar el bloque anterior con el mismo formato. No marcar una tarea como completa basándose solamente en el reporte de un agente.
@@ -156,6 +159,9 @@ Después de cada integración, reemplazar el bloque anterior con el mismo format
 - `7a9393514e2ca572df5345235ebaf6b04406dde2`: readiness y propiedad de archivos actualizados.
 - `cc45637818c8693056590a186d4aa2dca0b7dc20`: PR #4 integrado después de GitHub Actions run #96 verde.
 - `4e7c30238fdfe0393e6b5432bfea168c9a9ea418`: PR #5 (Task 1) integrado después de GitHub Actions run #101 verde.
+- `9054aaf680968cac1f6818a97fda57db2ac3b44e`: PR #6 (Task 3) integrado después de run #105 verde.
+- `53ee9475a5ec719e90b48b71b6e9b87741598d92`: PR #7 (Task 2) integrado después de run #107 verde.
+- `7178106ec0f3c3a95fe37e8cccb698a2f85579d6`: PR #8 (Task 4) integrado después de run #113 verde. Cierra la ola 1.
 
 ## Condición de cierre
 
