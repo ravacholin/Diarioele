@@ -18,8 +18,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AppSettingEntity::class,
         TranscriptionRunEntity::class,
         TranscriptionCheckpointEntity::class,
+        InterpretationCacheEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class DiarioDatabase : RoomDatabase() {
@@ -60,6 +61,14 @@ abstract class DiarioDatabase : RoomDatabase() {
                 db.execSQL("CREATE TABLE IF NOT EXISTS transcription_runs (sessionId TEXT NOT NULL PRIMARY KEY,state TEXT NOT NULL,pauseRequested INTEGER NOT NULL,processedMs INTEGER NOT NULL,totalMs INTEGER NOT NULL,currentSegmentId TEXT,failure TEXT,updatedAtEpochMs INTEGER NOT NULL,FOREIGN KEY(sessionId) REFERENCES sessions(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
                 db.execSQL("CREATE TABLE IF NOT EXISTS transcription_checkpoints (audioSegmentId TEXT NOT NULL PRIMARY KEY,sessionId TEXT NOT NULL,confirmedUntilMs INTEGER NOT NULL,totalMs INTEGER NOT NULL,processedWindows INTEGER NOT NULL,totalWindows INTEGER NOT NULL,state TEXT NOT NULL,failure TEXT,updatedAtEpochMs INTEGER NOT NULL,FOREIGN KEY(audioSegmentId) REFERENCES audio_segments(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_transcription_checkpoints_sessionId ON transcription_checkpoints(sessionId)")
+            }
+        }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS interpretation_cache (cacheId TEXT NOT NULL PRIMARY KEY,packetId TEXT NOT NULL,sessionId TEXT NOT NULL,provider TEXT NOT NULL,modelId TEXT NOT NULL,promptVersion TEXT NOT NULL,schemaVersion TEXT NOT NULL,validatedJson TEXT NOT NULL,createdAtEpochMs INTEGER NOT NULL)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_interpretation_cache_sessionId ON interpretation_cache(sessionId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_interpretation_cache_packetId ON interpretation_cache(packetId)")
             }
         }
     }
