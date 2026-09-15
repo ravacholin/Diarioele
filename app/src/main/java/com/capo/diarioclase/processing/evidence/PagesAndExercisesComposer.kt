@@ -71,24 +71,30 @@ class PagesAndExercisesComposer {
     }
 
     private fun orderedByEvidence(claims: List<EvidenceClaim>): List<EvidenceClaim> {
-        val fallbackBlockOrder = LinkedHashMap<String, Int>()
-        claims.forEach { claim ->
-            val block = primaryEvidence(claim).blockId.value
-            fallbackBlockOrder.getOrPut(block) { fallbackBlockOrder.size + 1 }
+        val blocks = claims.groupByTo(LinkedHashMap()) { primaryEvidence(it).blockId.value }
+            .values
+            .toList()
+        val orderedBlocks = if (blocks.all { block -> block.all { primaryEvidence(it).blockOrdinal != null } }) {
+            blocks.sortedBy { block -> primaryEvidence(block.first()).blockOrdinal }
+        } else {
+            blocks
         }
-        return claims.withIndex()
-            .sortedWith(
-                compareBy<IndexedValue<EvidenceClaim>>(
-                    { indexed ->
-                        val evidence = primaryEvidence(indexed.value)
-                        evidence.blockOrdinal ?: fallbackBlockOrder.getValue(evidence.blockId.value)
-                    },
-                    { primaryEvidence(it.value).audioSegmentOrdinal ?: Int.MAX_VALUE },
-                    { primaryEvidence(it.value).spanOrdinal ?: Int.MAX_VALUE },
-                    { it.index },
-                ),
-            )
-            .map { it.value }
+        return orderedBlocks.flatMap { block ->
+            val hasCompleteOrder = block.all { claim ->
+                val evidence = primaryEvidence(claim)
+                evidence.audioSegmentOrdinal != null && evidence.spanOrdinal != null
+            }
+            if (hasCompleteOrder) {
+                block.sortedWith(
+                    compareBy(
+                        { primaryEvidence(it).audioSegmentOrdinal },
+                        { primaryEvidence(it).spanOrdinal },
+                    ),
+                )
+            } else {
+                block
+            }
+        }
     }
 
     private fun primaryEvidence(claim: EvidenceClaim): EvidenceRef =

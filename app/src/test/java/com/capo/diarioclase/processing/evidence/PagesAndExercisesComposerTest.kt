@@ -64,8 +64,8 @@ class PagesAndExercisesComposerTest {
     fun `provider claim order cannot attach an earlier exercise to a later page`() {
         val result = composer.compose(
             listOf(
-                claim("p1", ClaimCategory.PAGE, "22", spanOrdinal = 3),
-                claim("e1", ClaimCategory.EXERCISE, "3", spanOrdinal = 1),
+                claim("p1", ClaimCategory.PAGE, "22", segmentOrdinal = 1, spanOrdinal = 3),
+                claim("e1", ClaimCategory.EXERCISE, "3", segmentOrdinal = 1, spanOrdinal = 1),
             ),
         )
 
@@ -76,14 +76,21 @@ class PagesAndExercisesComposerTest {
     fun `explicit block ordinals prevent interleaved provider output`() {
         val result = composer.compose(
             listOf(
-                claim("p2", ClaimCategory.PAGE, "22", block = "block-2", blockOrdinal = 2),
-                claim("p1", ClaimCategory.PAGE, "14", block = "block-1", blockOrdinal = 1),
+                claim(
+                    "p2", ClaimCategory.PAGE, "22", block = "block-2",
+                    blockOrdinal = 2, segmentOrdinal = 1, spanOrdinal = 1,
+                ),
+                claim(
+                    "p1", ClaimCategory.PAGE, "14", block = "block-1",
+                    blockOrdinal = 1, segmentOrdinal = 1, spanOrdinal = 1,
+                ),
                 claim(
                     "e1",
                     ClaimCategory.EXERCISE,
                     "3",
                     block = "block-1",
                     blockOrdinal = 1,
+                    segmentOrdinal = 1,
                     spanOrdinal = 2,
                 ),
             ),
