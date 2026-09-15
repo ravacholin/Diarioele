@@ -98,4 +98,27 @@ class SemanticClaimReducerTest {
         assertFalse(active(result, "C1"))
         assertTrue(active(result, "C2"))
     }
+
+    @Test
+    fun `preserves namespaced claim metadata`() {
+        val raw = raw("C1", ClaimCategory.PAGE, "42").copy(
+            runId = "run-1",
+            packetId = "packet-2",
+            providerClaimKey = "provider-C1",
+            declaredConfidence = 0.95,
+            effectiveConfidence = 0.7,
+            transcriptSpanIds = listOf("span-local-3"),
+            claimOrdinal = 2,
+        )
+
+        val claim = reducer.reduce(listOf(raw)).single()
+
+        assertEquals(raw.runId, claim.runId)
+        assertEquals(raw.packetId, claim.packetId)
+        assertEquals(raw.providerClaimKey, claim.providerClaimKey)
+        assertEquals(raw.declaredConfidence, claim.declaredConfidence, 0.0)
+        assertEquals(raw.effectiveConfidence, claim.effectiveConfidence, 0.0)
+        assertEquals(raw.transcriptSpanIds, claim.transcriptSpanIds)
+        assertEquals(raw.claimOrdinal, claim.claimOrdinal)
+    }
 }

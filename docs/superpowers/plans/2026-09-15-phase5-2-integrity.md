@@ -174,7 +174,7 @@ data class InterpretationPacket(
 }
 ```
 
-`InterpretationPacketBuilder.build` returns these wrappers. Provider clients receive only `packet.request`; validators and persistence receive the wrapper so every public evidence id can be mapped back to a real `transcriptSpanId`.
+I1 congela el wrapper sin cambiar todavía la firma del builder. I2 hace que `InterpretationPacketBuilder.build` devuelva estos wrappers y adapta sus consumidores. Los clientes de proveedor reciben solo `packet.request`; validadores y persistencia reciben el wrapper para mapear cada id público a un `transcriptSpanId` real.
 
 Expand `RawClaim` and `EvidenceClaim` with defaults for `runId`, `packetId`, `providerClaimKey`, `declaredConfidence`, `effectiveConfidence`, and local evidence span ids. Preserve source compatibility.
 
@@ -493,8 +493,10 @@ git commit -m "feat: persist semantic runs claims and evidence"
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/InferenceHttpTransport.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/ProviderRetryPolicy.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/RouterSemanticInterpreter.kt`
+- Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/SemanticResponseValidator.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/work/TranscriptionWorker.kt`
 - Test: `app/src/test/java/com/capo/diarioclase/processing/semantic/FreeInferenceRouterTest.kt`
+- Modify: `app/src/test/java/com/capo/diarioclase/processing/semantic/SemanticResponseValidatorTest.kt`
 - Create: `app/src/test/java/com/capo/diarioclase/processing/work/TranscriptionWorkerTest.kt`
 
 **Interfaces:**
@@ -527,6 +529,8 @@ Expected: FAIL on missing budget and semantic outcomes.
 - [ ] **Step 3: Implement bounded routing**
 
 Wrap packet and session work with cooperative `withTimeoutOrNull`. Track two consecutive transient failures per provider and open its execution circuit. Honor `retryAfterMs` only when it fits the remaining budget.
+
+Wire the I1 identity contract at the validation boundary. For each accepted provider claim, derive `id` with `ClaimIdentity.id(runId, packet.request.packetId, provider, claim.claimKey)`, retain `claimOrdinal`, and resolve every public evidence id through `packet.sourceSpanIds`. Duplicate provider claim keys in one response are invalid. This is the point where the previously packet-local key becomes a global claim id.
 
 The worker catches semantic exceptions separately:
 

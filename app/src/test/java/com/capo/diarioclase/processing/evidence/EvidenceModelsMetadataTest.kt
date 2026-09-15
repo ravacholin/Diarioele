@@ -18,6 +18,7 @@ class EvidenceModelsMetadataTest {
         assertEquals(claim.confidence, claim.declaredConfidence, 0.0)
         assertEquals(claim.confidence, claim.effectiveConfidence, 0.0)
         assertTrue(claim.transcriptSpanIds.isEmpty())
+        assertEquals(0, claim.claimOrdinal)
     }
 
     @Test
@@ -38,6 +39,7 @@ class EvidenceModelsMetadataTest {
             declaredConfidence = 0.9,
             effectiveConfidence = 0.7,
             transcriptSpanIds = listOf("span-local-3", "span-local-4"),
+            claimOrdinal = 3,
         )
 
         assertEquals("run-1", claim.runId)
@@ -46,6 +48,30 @@ class EvidenceModelsMetadataTest {
         assertEquals(0.9, claim.declaredConfidence, 0.0)
         assertEquals(0.7, claim.effectiveConfidence, 0.0)
         assertEquals(listOf("span-local-3", "span-local-4"), claim.transcriptSpanIds)
+        assertEquals(3, claim.claimOrdinal)
+    }
+
+    @Test
+    fun `legacy reducer preserves namespaced metadata`() {
+        val raw = rawClaim().copy(
+            runId = "run-1",
+            packetId = "packet-2",
+            providerClaimKey = "provider-C1",
+            declaredConfidence = 0.95,
+            effectiveConfidence = 0.65,
+            transcriptSpanIds = listOf("span-local-3"),
+            claimOrdinal = 4,
+        )
+
+        val claim = ClaimReducer().reduce(listOf(raw)).single()
+
+        assertEquals(raw.runId, claim.runId)
+        assertEquals(raw.packetId, claim.packetId)
+        assertEquals(raw.providerClaimKey, claim.providerClaimKey)
+        assertEquals(raw.declaredConfidence, claim.declaredConfidence, 0.0)
+        assertEquals(raw.effectiveConfidence, claim.effectiveConfidence, 0.0)
+        assertEquals(raw.transcriptSpanIds, claim.transcriptSpanIds)
+        assertEquals(raw.claimOrdinal, claim.claimOrdinal)
     }
 
     private fun rawClaim() = RawClaim(

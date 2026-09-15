@@ -42,6 +42,24 @@ class InterpretationRunModelsTest {
     }
 
     @Test
+    fun `packet rejects duplicate public ids`() {
+        val request = request(listOf(span("B1-S1"), span("B1-S1", ordinal = 2)))
+
+        assertThrows(IllegalArgumentException::class.java) {
+            InterpretationPacket(request, mapOf("B1-S1" to "span-local-1"))
+        }
+    }
+
+    @Test
+    fun `packet rejects blank local ids`() {
+        val request = request(listOf(span("B1-S1")))
+
+        assertThrows(IllegalArgumentException::class.java) {
+            InterpretationPacket(request, mapOf("B1-S1" to ""))
+        }
+    }
+
+    @Test
     fun `semantic states remain exhaustive and stable for persistence`() {
         assertEquals(
             listOf("PENDING", "RUNNING", "REMOTE_OK", "LOCAL_OK", "MIXED_OK", "FAILED", "CANCELLED"),
