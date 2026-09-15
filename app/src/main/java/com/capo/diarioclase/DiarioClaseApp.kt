@@ -137,6 +137,7 @@ class DiarioClaseApp : Application() {
             packetBuilder = InterpretationPacketBuilder(),
             router = router,
             reducer = SemanticClaimReducer(),
+            fallback = FallbackClaimExtractor(),
             enabledProviders = {
                 settings.enabledProfilesInOrder().map { ProviderModel(it.provider, it.modelId) }
             },

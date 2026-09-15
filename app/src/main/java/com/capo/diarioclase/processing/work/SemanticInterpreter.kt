@@ -1,7 +1,6 @@
 package com.capo.diarioclase.processing.work
 
 import com.capo.diarioclase.data.db.SessionId
-import com.capo.diarioclase.processing.evidence.EvidenceClaim
 import com.capo.diarioclase.processing.transcription.TranscriptSpan
 
 /**
@@ -15,5 +14,9 @@ import com.capo.diarioclase.processing.transcription.TranscriptSpan
  * conserva su extracción local determinista.
  */
 interface SemanticInterpreter {
-    suspend fun interpret(sessionId: SessionId, spans: List<TranscriptSpan>): List<EvidenceClaim>
+    suspend fun interpret(
+        sessionId: SessionId,
+        spans: List<TranscriptSpan>,
+        budget: InterpretationBudget = InterpretationBudget(),
+    ): InterpretationOutcome
 }

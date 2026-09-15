@@ -353,7 +353,7 @@ class TranscriptionCoordinator(
         // La interpretación remota (router + fallback local) reemplaza a la extracción
         // directa cuando hay un intérprete compuesto; el modo se aplica siempre localmente
         // al proyectar, sin volver a llamar a la red.
-        val claims = interpreter?.interpret(sessionId, transcript)
+        val claims = interpreter?.interpret(sessionId, transcript)?.claims
             ?: reducer.reduce(extractor.extract(transcript))
         val generatedDraft = materializer.materialize(sessionId.value, mode, claims)
         val draft = store.draft(sessionId)?.takeIf { it.userEdited }?.let { edited ->
