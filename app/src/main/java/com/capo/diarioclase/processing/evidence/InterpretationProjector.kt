@@ -7,11 +7,23 @@ class InterpretationProjector {
             InterpretationMode.BALANCED -> .70 to .40
             InterpretationMode.EXHAUSTIVE -> .55 to .01
         }
-        val valid = claims.filter { it.active && it.evidence.excerpt.isNotBlank() }
-        return ClaimPresentation(
-            accepted = valid.filter { it.confidence >= acceptedAt },
-            confirm = valid.filter { it.confidence in confirmAt..<acceptedAt },
-            hidden = claims - valid.toSet() + valid.filter { it.confidence < confirmAt },
-        )
+        val accepted = mutableListOf<EvidenceClaim>()
+        val confirm = mutableListOf<EvidenceClaim>()
+        val hidden = mutableListOf<EvidenceClaim>()
+        claims.forEach { claim ->
+            val valid = claim.active && claim.evidence.excerpt.isNotBlank()
+            when {
+                !valid -> hidden += claim
+                // El estado decide antes que la confianza.
+                claim.status == ClaimStatus.UNCERTAIN -> confirm += claim
+                claim.status == ClaimStatus.PROPOSED ||
+                    claim.status == ClaimStatus.CANCELLED ||
+                    claim.status == ClaimStatus.CORRECTED -> hidden += claim
+                claim.confidence >= acceptedAt -> accepted += claim
+                claim.confidence >= confirmAt -> confirm += claim
+                else -> hidden += claim
+            }
+        }
+        return ClaimPresentation(accepted, confirm, hidden)
     }
 }
