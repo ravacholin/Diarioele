@@ -14,6 +14,26 @@ import com.capo.diarioclase.diary.cleanup.RoomTemporaryCleanupStore
 import com.capo.diarioclase.processing.evidence.ClaimReducer
 import com.capo.diarioclase.processing.evidence.InterpretationProjector
 import com.capo.diarioclase.processing.evidence.LiteralClaimExtractor
+import com.capo.diarioclase.processing.semantic.DefaultInferenceHttpTransport
+import com.capo.diarioclase.processing.semantic.EphemeralCredential
+import com.capo.diarioclase.processing.semantic.FallbackClaimExtractor
+import com.capo.diarioclase.processing.semantic.FreeInferenceRouter
+import com.capo.diarioclase.processing.semantic.GeminiProviderClient
+import com.capo.diarioclase.processing.semantic.InferenceProvider
+import com.capo.diarioclase.processing.semantic.InterpretationPacketBuilder
+import com.capo.diarioclase.processing.semantic.InterpretationPromptFactory
+import com.capo.diarioclase.processing.semantic.KeystoreProviderCredentialStore
+import com.capo.diarioclase.processing.semantic.OpenAiCompatibleProfile
+import com.capo.diarioclase.processing.semantic.OpenAiCompatibleProviderClient
+import com.capo.diarioclase.processing.semantic.ProviderCredentialStore
+import com.capo.diarioclase.processing.semantic.ProviderModel
+import com.capo.diarioclase.processing.semantic.ProviderSettingsController
+import com.capo.diarioclase.processing.semantic.ProviderSettingsStore
+import com.capo.diarioclase.processing.semantic.RealProviderConnectionTester
+import com.capo.diarioclase.processing.semantic.RoomInterpretationCache
+import com.capo.diarioclase.processing.semantic.RouterSemanticInterpreter
+import com.capo.diarioclase.processing.semantic.SemanticClaimReducer
+import com.capo.diarioclase.processing.semantic.SemanticResponseValidator
 import com.capo.diarioclase.processing.transcription.WhisperModelInstaller
 import com.capo.diarioclase.processing.transcription.WhisperNativeBridge
 import com.capo.diarioclase.processing.transcription.WhisperTranscriptionEngine
@@ -48,6 +68,9 @@ class DiarioClaseApp : Application() {
     lateinit var whisperEngine: WhisperTranscriptionEngine
     lateinit var cleanupFiles: CleanupFileStore
     lateinit var cleanupCoordinator: CleanupCoordinator
+    lateinit var providerSettings: ProviderSettingsStore
+    lateinit var providerCredentials: ProviderCredentialStore
+    lateinit var providerSettingsController: ProviderSettingsController
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -85,7 +108,44 @@ class DiarioClaseApp : Application() {
             modelProvider = WhisperModelInstaller(this),
             nativeRuntime = WhisperNativeBridge(),
         )
-        transcriptionCoordinator = TranscriptionCoordinator(processingStore, whisperEngine)
+        providerSettings = ProviderSettingsStore(this)
+        providerCredentials = KeystoreProviderCredentialStore(this)
+        val transport = DefaultInferenceHttpTransport()
+        val promptFactory = InterpretationPromptFactory()
+        val clients = mapOf(
+            InferenceProvider.GEMINI to GeminiProviderClient(transport, promptFactory),
+            InferenceProvider.GROQ to OpenAiCompatibleProviderClient(OpenAiCompatibleProfile.GROQ, transport, promptFactory),
+            InferenceProvider.OPENROUTER to OpenAiCompatibleProviderClient(OpenAiCompatibleProfile.OPENROUTER, transport, promptFactory),
+        )
+        val credentials = providerCredentials
+        val router = FreeInferenceRouter(
+            clients = clients,
+            validator = SemanticResponseValidator(),
+            fallback = FallbackClaimExtractor(),
+            cache = RoomInterpretationCache(database.sessions()),
+            credentialFor = { provider ->
+                credentials.readCredential(provider)?.let { chars ->
+                    val value = String(chars)
+                    chars.fill(Char(0))
+                    EphemeralCredential(value)
+                }
+            },
+        )
+        val settings = providerSettings
+        val interpreter = RouterSemanticInterpreter(
+            packetBuilder = InterpretationPacketBuilder(),
+            router = router,
+            reducer = SemanticClaimReducer(),
+            enabledProviders = {
+                settings.enabledProfilesInOrder().map { ProviderModel(it.provider, it.modelId) }
+            },
+        )
+        transcriptionCoordinator = TranscriptionCoordinator(processingStore, whisperEngine, interpreter = interpreter)
+        providerSettingsController = ProviderSettingsController(
+            settings = providerSettings,
+            credentials = providerCredentials,
+            connectionTester = RealProviderConnectionTester(clients, providerCredentials),
+        )
         appScope.launch {
             database.sessions().recoverInterruptedTranscriptions()
             recovery.onAppStart()

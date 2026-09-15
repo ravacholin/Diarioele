@@ -104,6 +104,7 @@ class TranscriptionCoordinator(
     private val reducer: ClaimReducer = ClaimReducer(),
     private val projector: InterpretationProjector = InterpretationProjector(),
     private val pcmReader: (File, AudioWindowPlan) -> FloatArray = PcmWindowReader::read,
+    private val interpreter: SemanticInterpreter? = null,
 ) {
     suspend fun process(
         sessionId: SessionId,
@@ -311,7 +312,12 @@ class TranscriptionCoordinator(
         if (store.sessionState(sessionId) == SessionState.TRANSCRIBING) {
             store.updateSession(sessionId, SessionState.EXTRACTING)
         }
-        val claims = reducer.reduce(extractor.extract(store.transcript(sessionId)))
+        val transcript = store.transcript(sessionId)
+        // La interpretación remota (router + fallback local) reemplaza a la extracción
+        // directa cuando hay un intérprete compuesto; el modo se aplica siempre localmente
+        // al proyectar, sin volver a llamar a la red.
+        val claims = interpreter?.interpret(sessionId, transcript)
+            ?: reducer.reduce(extractor.extract(transcript))
         val presentation = projector.project(claims, mode)
         val generatedDraft = DiaryDraft(
             sessionId.value,
