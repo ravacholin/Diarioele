@@ -4,7 +4,7 @@
 
 ## Estado actual
 
-La Fase 5 está en implementación colaborativa. **Las olas 1 (Tasks 1–4) y 2 (Tasks 5 y 6) están integradas y verdes** en `feature/phase5-contextual-interpretation` (`a9812c0`); con eso se habilita la ola 3 (Task 7: router secuencial y fallback local).
+La Fase 5 está en implementación colaborativa. **Las olas 1 (Tasks 1–4), 2 (Tasks 5 y 6) y 3 (Task 7) están integradas y verdes** en `feature/phase5-contextual-interpretation` (`9886202`); con eso se habilita la ola 4 (Task 8: integración con el procesamiento y UI; luego Task 9: release y prueba física).
 
 La Fase 4 permanece completa, validada por CI y probada con éxito en el Moto g max. La rama de Fase 5 parte de esa base funcional y no debe alterar el motor Whisper local.
 
@@ -56,29 +56,31 @@ La garantía de costo requiere claves de cuentas o proyectos sin facturación. L
 | 4. Prompt y clientes HTTP | COMPLETA | Task 1 | PR #8, run #113 verde, `5b73b29` → merge `7178106` |
 | 5. Validación y reducción | COMPLETA | Tasks 3 y 4 | PR #9, run #117 verde, `6f3b674` → merge `b08e850` |
 | 6. Caché Room | COMPLETA | Task 1 | PR #10, run #119 verde, `0b144da` → merge `a9812c0` |
-| 7. Router y fallback | HABILITADA | Tasks 2, 4, 5 y 6 | sin PR |
-| 8. Integración y UI | BLOQUEADA | Task 7 | sin PR |
+| 7. Router y fallback | COMPLETA | Tasks 2, 4, 5 y 6 | PR #11, run #124 verde, `bde19f9` → merge `9886202` |
+| 8. Integración y UI | HABILITADA | Task 7 | sin PR |
 | 9. Feedback y release | BLOQUEADA | Task 8 | sin PR |
 
 ## Siguiente acción exacta
 
-Las **olas 1 y 2** (Tasks 1–6) están integradas y verdes. Se habilita la **ola 3**: Task 7 (router secuencial y fallback local), en la rama:
+Las **olas 1–3** (Tasks 1–7) están integradas y verdes. Se habilita la **ola 4**: Task 8 (integración con el procesamiento y configuración visible), en la rama:
 
 ```text
-Task 7 -> feature/phase5-task-07-router
+Task 8 -> feature/phase5-task-08-integration-ui
 ```
 
-Reglas de la ola 3:
+Reglas de la ola 4 (Task 8):
 
-- La rama parte del último head verde de la integración (`a9812c0`).
-- Task 7 **solo compone** clientes (Task 4), catálogo/credenciales (Task 2), validador y reductor (Task 5) y caché (Task 6) y aplica la política de rutas; no redefine ninguno.
-- Política: orden Gemini→Groq→OpenRouter→local; una respuesta validada detiene la cadena; máximo dos requests por proveedor y paquete; `QUOTA/AUTHENTICATION/BILLING_RISK/NO_NETWORK` no reintentan; `SERVER_UNAVAILABLE/TIMEOUT` reintentan una vez tras 2 s; `INVALID_RESPONSE` admite una solicitud correctiva si queda presupuesto; circuit breaker por ejecución; nunca llamadas paralelas; nunca un proveedor fuera del catálogo.
-- `FallbackClaimExtractor` encapsula las reglas locales existentes (`LiteralClaimExtractor`), con claims `LOCAL_RULE` y “por confirmar” cuando completan un paquete remoto fallido dentro de una ficha mixta.
-- Nunca usa red ni claves reales en CI (clientes y caché falsos).
+- La rama parte del último head verde de la integración (`9886202`).
+- Componer en `DiarioClaseApp` catálogo, stores, transporte, los dos tipos de cliente, validador, caché, reductor, router y fallback. `DiarioClaseApp` ya registra `MIGRATION_4_5` (agregado en Task 6).
+- Separar el estado de interpretación del éxito de Whisper; el router arranca solo después de completar Whisper; persistir paquete/proveedor/intento/resultado y procesar como máximo una unidad reanudable por paso. **No** modificar el motor Whisper, ventanas, deduplicación ni checkpoints.
+- Reemplazar la extracción directa por paquetes → routing → reducción → proyección. Cambiar de modo no llama a la red. Los campos editados sobreviven. La reapertura usa caché. La cancelación conserva datos.
+- UI compacta por proveedor: activar, explicación de envío de texto, consentimiento, campo de clave oculto, guardar, probar, borrar, modelo fijo gratuito y últimos cuatro caracteres; sin escribir el id de modelo. Probar conexión con un prompt fijo mínimo (OpenRouter: `GET /api/v1/key` y advertir si no es free-tier o hay gasto sin límite). Mostrar proveedor actual, paquete actual, fallbacks y procedencia `GEMINI/GROQ/OPENROUTER/MIXTO/LOCAL`, con `REINTENTAR INFERENCIA` y `CONTINUAR CON FICHA LOCAL`.
+- Archivos reservados de Task 8: `TranscriptionCoordinator.kt`, `TranscriptionWorker.kt`, `DiarioClaseApp.kt`, `AndroidCaptureActions.kt`, `CaptureUiState.kt`, `CaptureViewModel.kt`, `CaptureScreen.kt` y sus pruebas.
+- Nunca red ni claves reales en CI; los fallos simulados solo en debug.
 
-Artefactos disponibles tras las olas 1 y 2: contrato, catálogo/credenciales, paquetes, adaptadores, validador (`SemanticResponseValidator`), reductor (`SemanticClaimReducer`), projector por estado y caché (`RoomInterpretationCache`).
+Task 9 (release + prueba física en el Moto g max) queda para el final y **requiere el teléfono del usuario**.
 
-Pendiente declarado para Task 8: `DiarioClaseApp` ya registra `MIGRATION_4_5`; Task 8 compone el router en el coordinator y expone la UI.
+Artefactos disponibles tras las olas 1–3: contrato, catálogo/credenciales, paquetes, adaptadores, validador, reductor, projector por estado, caché y router (`FreeInferenceRouter`, `ProviderRetryPolicy`, `FallbackClaimExtractor`).
 
 ## Restricciones de implementación
 
@@ -119,14 +121,13 @@ No se necesita audio real ni corpus. Cada error observado luego en el teléfono 
 Último checkpoint integrado:
 
 ```text
-Ola integrada: 2 (Tasks 5 y 6) sobre las olas 0 y 1 (Tasks 0–4)
-Task 5: PR #9, head 6f3b674, merge b08e850, run #117 SUCCESS
-Task 6: PR #10, head 0b144da, merge a9812c0, run #119 SUCCESS
-Base SHA de la ola 3: a9812c019cf6fedc53ddf89c508bed918268980e
+Ola integrada: 3 (Task 7) sobre las olas 0–2 (Tasks 0–6)
+Task 7: PR #11, head bde19f9, merge 9886202, run #124 SUCCESS
+Base SHA de la ola 4: 9886202996108f43f6c8099383d49bce49bab429
 Pruebas: testDebugUnitTest + lintDebug + assembleDebug + assembleDebugAndroidTest
-Resultado: verde; validador, reductor, projector por estado y caché Room (migración 4→5) integrados
-Riesgos pendientes: componer el router (Task 7) y la UI (Task 8)
-Próxima ola habilitada: 3 (Task 7: router y fallback local)
+Resultado: verde; router secuencial, política de reintentos y fallback local integrados
+Riesgos pendientes: componer router+UI en el coordinator (Task 8) y release+prueba física (Task 9)
+Próxima ola habilitada: 4 (Task 8: integración y UI; luego Task 9: release)
 ```
 
 Después de cada integración, reemplazar el bloque anterior con el mismo formato. No marcar una tarea como completa basándose solamente en el reporte de un agente.
@@ -159,6 +160,7 @@ Después de cada integración, reemplazar el bloque anterior con el mismo format
 - `7178106ec0f3c3a95fe37e8cccb698a2f85579d6`: PR #8 (Task 4) integrado después de run #113 verde. Cierra la ola 1.
 - `b08e85066663a67b91ccbf64464ba845b1cb73d6`: PR #9 (Task 5) integrado después de run #117 verde.
 - `a9812c019cf6fedc53ddf89c508bed918268980e`: PR #10 (Task 6) integrado después de run #119 verde. Cierra la ola 2.
+- `9886202996108f43f6c8099383d49bce49bab429`: PR #11 (Task 7) integrado después de run #124 verde. Cierra la ola 3.
 
 ## Condición de cierre
 
