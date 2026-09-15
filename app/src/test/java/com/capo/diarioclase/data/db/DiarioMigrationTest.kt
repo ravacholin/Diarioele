@@ -54,9 +54,10 @@ class DiarioMigrationTest {
                 DiarioDatabase.MIGRATION_2_3,
                 DiarioDatabase.MIGRATION_3_4,
                 DiarioDatabase.MIGRATION_4_5,
+                DiarioDatabase.MIGRATION_5_6,
             ).allowMainThreadQueries().build()
         try {
-            assertEquals(5, database.openHelper.writableDatabase.version)
+            assertEquals(6, database.openHelper.writableDatabase.version)
             assertEquals(0, queryCount(database.openHelper.writableDatabase, "transcription_runs"))
             assertEquals(0, queryCount(database.openHelper.writableDatabase, "transcription_checkpoints"))
             assertEquals(0, queryCount(database.openHelper.writableDatabase, "interpretation_cache"))
