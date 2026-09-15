@@ -77,6 +77,38 @@ class TranscriptionCoordinatorTest {
     }
 
     @Test
+    fun `semantic assigned exercise is materialized as homework`() = runTest {
+        val store = FakeStore(durations = linkedMapOf("a" to 1_000L))
+        val engine = RecordingWindowEngine {
+            WindowTranscriptResult.Success(listOf(span(it, "Ejercicio cuatro para mañana")))
+        }
+        val evidence = EvidenceRef(BlockId("block"), 0, 1_000, "ejercicio cuatro")
+        val interpreter = object : SemanticInterpreter {
+            override suspend fun interpret(sessionId: SessionId, spans: List<TranscriptSpan>) = listOf(
+                EvidenceClaim(
+                    id = "e1",
+                    category = ClaimCategory.EXERCISE,
+                    value = "4",
+                    normalizedValue = "4",
+                    status = ClaimStatus.ASSIGNED,
+                    confidence = 1.0,
+                    origin = ClaimOrigin.GEMINI,
+                    evidence = evidence,
+                ),
+            )
+        }
+
+        val result = coordinator(store, engine, interpreter).process(
+            SessionId("day"),
+            InterpretationMode.CONSERVATIVE,
+        ) as ProcessingOutcome.Complete
+
+        assertEquals("4", result.draft.homework)
+        assertEquals("", result.draft.pages)
+        assertEquals("", result.draft.exercises)
+    }
+
+    @Test
     fun `live window progress is persisted as partial processed time`() = runTest {
         val store = FakeStore(durations = linkedMapOf("a" to 1_000L))
         val engine = object : WindowTranscriptionEngine {
@@ -209,6 +241,7 @@ class TranscriptionCoordinatorTest {
     private fun coordinator(
         store: FakeStore,
         engine: WindowTranscriptionEngine,
+        interpreter: SemanticInterpreter? = null,
     ) = TranscriptionCoordinator(
         store = store,
         engine = engine,
@@ -216,6 +249,7 @@ class TranscriptionCoordinatorTest {
         pcmReader = { _, plan ->
             FloatArray(((plan.endMs - plan.startMs) * 16).toInt())
         },
+        interpreter = interpreter,
     )
 
     private fun span(window: AudioWindow, text: String) = TranscriptSpan(
