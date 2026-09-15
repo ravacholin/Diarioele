@@ -37,7 +37,7 @@
 
 **Interfaces:**
 - Consumes: namespaced claims and persisted evidence from 0.5.2.
-- Produces: `SemanticIssue`, `QualityDecision`, `QualityReport`, `InferenceAttemptContext` and `ClaimProvenance`.
+- Produces: `SemanticIssue`, `QualityDecision`, `QualityReport`, `InferenceAttemptContext`, `ClaimProvenance`, `ManualMarkerSignal` and `LocalInterpretationSignals`.
 
 - [ ] **Step 1: Write contract round-trip tests**
 
@@ -102,6 +102,17 @@ data class InferenceAttemptContext(
 }
 
 enum class ClaimProvenance { LOCAL, REMOTE, BOTH, USER }
+
+data class ManualMarkerSignal(
+    val markerId: String,
+    val type: String,
+    val blockId: String,
+    val offsetMs: Long,
+)
+
+data class LocalInterpretationSignals(
+    val markers: List<ManualMarkerSignal> = emptyList(),
+)
 ```
 
 Change `InferenceProviderClient.infer` to accept `InferenceAttemptContext`, with a default initial value only during migration of callers.
@@ -193,9 +204,11 @@ git commit -m "feat: ground semantic claims in local evidence"
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/GeminiProviderClient.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/OpenAiCompatibleProviderClient.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/FreeInferenceRouter.kt`
+- Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/RealProviderConnectionTester.kt`
 - Test: `app/src/test/java/com/capo/diarioclase/processing/semantic/InterpretationPromptFactoryTest.kt`
 - Test: `app/src/test/java/com/capo/diarioclase/processing/semantic/GeminiProviderClientTest.kt`
 - Test: `app/src/test/java/com/capo/diarioclase/processing/semantic/FreeInferenceRouterTest.kt`
+- Test: `app/src/test/java/com/capo/diarioclase/processing/semantic/RealProviderConnectionTesterTest.kt`
 
 **Interfaces:**
 - Consumes: `InferenceAttemptContext` and `QualityReport`.
@@ -233,6 +246,8 @@ put("temperature", 0)
 
 Keep Groq `json_schema strict=true`. Keep OpenRouter `json_object`, price maximum zero and data collection denied.
 
+For OpenRouter connection testing, perform an authenticated `GET /api/v1/key` preflight through a dedicated allowlisted GET method. Parse the returned limit/usage fields. Return `BILLING_WARNING` and keep the provider disabled when the key reports unlimited or positive spend capability. Cache a successful safe preflight for 10 minutes; the Probar conexión action always forces a refresh.
+
 - [ ] **Step 4: Connect the real repair attempt**
 
 The router calls:
@@ -267,11 +282,14 @@ git commit -m "feat: enforce native schemas and corrective inference"
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/FallbackClaimExtractor.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/RouterSemanticInterpreter.kt`
 - Modify: `app/src/main/java/com/capo/diarioclase/processing/semantic/SemanticClaimReducer.kt`
+- Modify: `app/src/main/java/com/capo/diarioclase/processing/work/SemanticInterpreter.kt`
+- Modify: `app/src/main/java/com/capo/diarioclase/processing/work/TranscriptionCoordinator.kt`
+- Modify: `app/src/main/java/com/capo/diarioclase/processing/work/RoomProcessingStore.kt`
 - Test: `app/src/test/java/com/capo/diarioclase/processing/semantic/HybridClaimMergerTest.kt`
 - Test: `app/src/test/java/com/capo/diarioclase/processing/semantic/RouterSemanticInterpreterTest.kt`
 
 **Interfaces:**
-- Consumes: local claims, accepted remote claims and `QualityReport`.
+- Consumes: local claims, `LocalInterpretationSignals`, accepted remote claims and `QualityReport`.
 - Produces: `HybridClaimMerger.merge(local, remote): List<EvidenceClaim>` with explicit provenance and effective confidence.
 
 - [ ] **Step 1: Write fusion tests**
@@ -300,11 +318,13 @@ Use canonical key `category + normalizedValue + status target`. For matching cla
 
 - [ ] **Step 4: Integrate the merger**
 
+`RoomProcessingStore` loads markers for every block and converts them to `LocalInterpretationSignals`. Marker ids and block ids remain local and are never placed in `InterpretationRequest`.
+
 `RouterSemanticInterpreter` always computes local candidates before routing. For every packet:
 
 ```kotlin
-val local = fallback.extract(packet.spans)
-val remote = router.routeRemote(packet)
+val local = fallback.extract(packet.request.spans, signals)
+val remote = router.routeRemote(packet.request)
 val merged = merger.merge(local, remote.claims)
 ```
 
@@ -548,6 +568,10 @@ data class EvaluationSummary(
     val evidenceCorrect: Int,
     val statusCorrect: Int,
     val exactFieldMatches: Int,
+    val providerAttempts: Map<String, Int>,
+    val providerInvalidResponses: Map<String, Int>,
+    val providerFallbacks: Map<String, Int>,
+    val cacheHits: Map<String, Int>,
 )
 ```
 
