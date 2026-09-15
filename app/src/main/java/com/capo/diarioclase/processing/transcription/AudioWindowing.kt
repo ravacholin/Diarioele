@@ -6,6 +6,8 @@ import com.capo.diarioclase.recording.audio.SAMPLE_RATE
 import com.capo.diarioclase.recording.audio.WAV_HEADER_BYTES
 import java.io.File
 import java.io.RandomAccessFile
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import kotlin.math.min
 
 data class AudioWindowPlan(
@@ -63,14 +65,16 @@ object PcmWindowReader {
 
             val sampleCountLong = lastSample - firstSample
             require(sampleCountLong <= Int.MAX_VALUE) { "La ventana es demasiado grande" }
-            val samples = FloatArray(sampleCountLong.toInt())
+            val sampleCount = sampleCountLong.toInt()
+            val samples = FloatArray(sampleCount)
+            // Lectura en bloque: una sola llamada de E/S en vez de dos por muestra
+            // (antes ~960 000 llamadas para 30 s). Decodifica PCM16 little-endian.
+            val rawBytes = ByteArray(sampleCount * bytesPerSample)
             input.seek(WAV_HEADER_BYTES + firstSample * bytesPerSample)
-            for (index in samples.indices) {
-                val low = input.read()
-                val high = input.read()
-                require(low >= 0 && high >= 0) { "El WAV terminó antes de lo declarado" }
-                val pcm = ((high shl 8) or low).toShort()
-                samples[index] = pcm.toFloat() / 32_768f
+            input.readFully(rawBytes)
+            val buffer = ByteBuffer.wrap(rawBytes).order(ByteOrder.LITTLE_ENDIAN)
+            for (index in 0 until sampleCount) {
+                samples[index] = buffer.short.toFloat() / 32_768f
             }
             samples
         }

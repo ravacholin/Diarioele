@@ -53,11 +53,13 @@ class DiarioMigrationTest {
             .addMigrations(
                 DiarioDatabase.MIGRATION_2_3,
                 DiarioDatabase.MIGRATION_3_4,
+                DiarioDatabase.MIGRATION_4_5,
             ).allowMainThreadQueries().build()
         try {
-            assertEquals(4, database.openHelper.writableDatabase.version)
+            assertEquals(5, database.openHelper.writableDatabase.version)
             assertEquals(0, queryCount(database.openHelper.writableDatabase, "transcription_runs"))
             assertEquals(0, queryCount(database.openHelper.writableDatabase, "transcription_checkpoints"))
+            assertEquals(0, queryCount(database.openHelper.writableDatabase, "interpretation_cache"))
             val legacy = database.sessions().draft("legacy")!! // Opening invokes Room's full schema validation.
             assertTrue(legacy.userEdited)
             val store = RoomProcessingStore(database, Clock { 2 })

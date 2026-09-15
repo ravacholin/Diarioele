@@ -87,6 +87,14 @@ class CaptureViewModelTest {
   val vm=CaptureViewModel(UiSessions(null,report),UiActions(),backgroundScope,observeProgress={progress});runCurrent()
   assertEquals(CaptureStatus.PROCESSING,vm.state.value.status);assertEquals("PREPARANDO MODELO",vm.state.value.progressLabel)
  }
+ @Test fun `extracting phase shows a distinct ficha generation label`()=runTest{
+  val report=RecordingReport(SessionId("s"),"2026-09-11",emptyList(),SessionState.EXTRACTING)
+  val progress=MutableStateFlow<TranscriptionProgress?>(TranscriptionProgress(SessionId("s"),60_000,60_000,0,0,0,TranscriptionRunState.PROCESSING,null))
+  val vm=CaptureViewModel(UiSessions(null,report),UiActions(),backgroundScope,observeProgress={progress});runCurrent()
+  assertEquals(CaptureStatus.PROCESSING,vm.state.value.status)
+  assertEquals("GENERANDO FICHA",vm.state.value.progressLabel)
+  assertEquals("Generando la ficha… (interpretando la transcripción)",vm.state.value.message)
+ }
  @Test fun `pausing keeps the recording available`()=runTest{
   val report=RecordingReport(SessionId("s"),"2026-09-11",listOf(BlockRecordingSummary(BlockId("b"),1,60_000,BlockCloseReason.FINALIZED,listOf(SegmentSummary(SegmentId("seg"),"/private/seg.ready.wav",60_000,1_920_044,SegmentState.TRANSCRIBING)))),SessionState.TRANSCRIBING)
   val progress=MutableStateFlow<TranscriptionProgress?>(TranscriptionProgress(SessionId("s"),20_000,60_000,0,0,0,TranscriptionRunState.PAUSED,null))

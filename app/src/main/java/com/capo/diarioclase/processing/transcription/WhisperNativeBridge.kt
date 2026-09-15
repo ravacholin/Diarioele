@@ -27,7 +27,26 @@ object RioplatensePrompt {
 interface WhisperNativeRuntime : AutoCloseable {
     fun load(modelPath: String)
     fun transcribe(samples: FloatArray, options: WhisperOptions): NativeWindowResult
+
+    /**
+     * Igual que [transcribe], pero informa el progreso de la ventana (0..100) a medida
+     * que el runtime nativo avanza. La implementación por defecto ignora el progreso.
+     */
+    fun transcribe(
+        samples: FloatArray,
+        options: WhisperOptions,
+        onProgress: ((Int) -> Unit)?,
+    ): NativeWindowResult = transcribe(samples, options)
+
     fun cancel()
+}
+
+/** Receptor de progreso nativo. Se invoca desde JNI mediante [report]. */
+class NativeProgressSink(private val onProgress: (Int) -> Unit) {
+    // Invocado desde código nativo (whisper_full) en el mismo hilo del JNI.
+    fun report(percent: Int) {
+        onProgress(percent)
+    }
 }
 
 class WhisperNativeBridge : WhisperNativeRuntime {
@@ -41,22 +60,30 @@ class WhisperNativeBridge : WhisperNativeRuntime {
         check(handle != 0L) { "No se pudo cargar el modelo Whisper" }
     }
 
+    override fun transcribe(
+        samples: FloatArray,
+        options: WhisperOptions,
+    ): NativeWindowResult = transcribe(samples, options, null)
+
     @Synchronized
     override fun transcribe(
         samples: FloatArray,
         options: WhisperOptions,
+        onProgress: ((Int) -> Unit)?,
     ): NativeWindowResult {
         check(handle != 0L) { "El motor Whisper no está cargado" }
         require(options.language == "es") { "Solo se admite español" }
         require(!options.translate && !options.detectLanguage) {
             "La traducción y la detección automática están desactivadas"
         }
+        val sink = onProgress?.let { NativeProgressSink(it) }
         return NativeWindowResult(
             nativeTranscribe(
                 handle = handle,
                 samples = samples,
                 prompt = options.prompt,
                 threads = options.threads,
+                progress = sink,
             ).toList(),
         )
     }
@@ -84,6 +111,7 @@ class WhisperNativeBridge : WhisperNativeRuntime {
         samples: FloatArray,
         prompt: String,
         threads: Int,
+        progress: NativeProgressSink?,
     ): Array<NativeSpan>
     private external fun nativeCancel(handle: Long)
     private external fun nativeFree(handle: Long)

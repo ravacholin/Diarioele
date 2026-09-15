@@ -83,7 +83,11 @@ class MainActivity : ComponentActivity() {
                     when (screen) {
                         AppScreen.Archive -> ArchiveScreen(archiveState, archive,
                             onCapture = { screen = AppScreen.Capture }, onSettings = { screen = AppScreen.Settings })
-                        AppScreen.Settings -> SettingsScreen(archiveState, archive::setMode, onArchive = { screen = AppScreen.Archive })
+                        AppScreen.Settings -> SettingsScreen(
+                            archiveState, archive::setMode,
+                            onArchive = { screen = AppScreen.Archive },
+                            providerController = app.providerSettingsController,
+                        )
                         AppScreen.Capture -> {
                             BackHandler { screen = AppScreen.Archive }
                             Column(Modifier.fillMaxSize().background(Color.Black)) {

@@ -36,6 +36,30 @@ bool abort_requested(void * user_data) {
     return static_cast<RuntimeState *>(user_data)->cancelled.load();
 }
 
+// Puente de progreso: whisper_full invoca el callback de forma síncrona en el mismo hilo
+// del JNI, así que el JNIEnv y la referencia local al objeto siguen siendo válidos.
+struct ProgressBridge {
+    JNIEnv * env = nullptr;
+    jobject sink = nullptr;
+    jmethodID report = nullptr;
+    int last = -1;
+};
+
+void report_progress(struct whisper_context *, struct whisper_state *, int progress, void * user_data) {
+    auto * bridge = static_cast<ProgressBridge *>(user_data);
+    if (bridge == nullptr || bridge->sink == nullptr || bridge->report == nullptr) {
+        return;
+    }
+    if (progress <= bridge->last) {
+        return;
+    }
+    bridge->last = progress;
+    bridge->env->CallVoidMethod(bridge->sink, bridge->report, static_cast<jint>(progress));
+    if (bridge->env->ExceptionCheck()) {
+        bridge->env->ExceptionClear();
+    }
+}
+
 }  // namespace
 
 extern "C" JNIEXPORT jlong JNICALL
@@ -75,7 +99,8 @@ Java_com_capo_diarioclase_processing_transcription_WhisperNativeBridge_nativeTra
         jlong handle,
         jfloatArray samples,
         jstring prompt,
-        jint threads) {
+        jint threads,
+        jobject progress) {
     RuntimeState * state = state_from(handle);
     if (state == nullptr || state->context == nullptr) {
         throw_java(env, "java/lang/IllegalStateException", "runtime_not_loaded");
@@ -114,6 +139,25 @@ Java_com_capo_diarioclase_processing_transcription_WhisperNativeBridge_nativeTra
     params.print_timestamps = false;
     params.abort_callback = abort_requested;
     params.abort_callback_user_data = state;
+    // Desactiva el fallback por temperatura: evita re-decodificar varias veces un tramo
+    // difícil (ruido de aula), principal causa de lentitud. Puede bajar levemente la
+    // calidad en audio muy ruidoso; para clases es un intercambio conveniente.
+    params.temperature_inc = 0.0f;
+
+    ProgressBridge progress_bridge;
+    if (progress != nullptr) {
+        jclass sink_class = env->GetObjectClass(progress);
+        if (sink_class != nullptr) {
+            jmethodID report = env->GetMethodID(sink_class, "report", "(I)V");
+            if (report != nullptr) {
+                progress_bridge.env = env;
+                progress_bridge.sink = progress;
+                progress_bridge.report = report;
+                params.progress_callback = report_progress;
+                params.progress_callback_user_data = &progress_bridge;
+            }
+        }
+    }
 
     const int result = whisper_full(state->context, params, pcm, sample_count);
 

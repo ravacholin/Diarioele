@@ -11,8 +11,8 @@ android {
         applicationId = "com.capo.diarioclase.phase2"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "0.4.0-whisper"
+        versionCode = 8
+        versionName = "0.5.1-free-router"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild {
@@ -61,6 +61,7 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.work.runtime)
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     ksp(libs.androidx.room.compiler)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

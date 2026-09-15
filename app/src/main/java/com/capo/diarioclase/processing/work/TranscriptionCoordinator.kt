@@ -24,6 +24,9 @@ import com.capo.diarioclase.processing.transcription.WindowTranscriptResult
 import com.capo.diarioclase.processing.transcription.WindowTranscriptionEngine
 import com.capo.diarioclase.recording.audio.ReadySegment
 import java.io.File
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 data class ProcessableSegment(
     val ready: ReadySegment,
@@ -58,6 +61,13 @@ interface ProcessingStore {
     suspend fun checkpoints(id: SessionId): List<TranscriptionCheckpointEntity>
     suspend fun saveRun(run: TranscriptionRunEntity)
     suspend fun markTranscribing(id: SegmentId)
+
+    /**
+     * Persiste el avance parcial de la ventana en curso (progreso en vivo). Por defecto es
+     * un no-op para implementaciones que no lo necesitan.
+     */
+    suspend fun updateWindowProgress(run: TranscriptionRunEntity, processedMs: Long) = Unit
+
     suspend fun confirmWindow(
         segmentId: SegmentId,
         spans: List<TranscriptSpan>,
@@ -104,6 +114,7 @@ class TranscriptionCoordinator(
     private val reducer: ClaimReducer = ClaimReducer(),
     private val projector: InterpretationProjector = InterpretationProjector(),
     private val pcmReader: (File, AudioWindowPlan) -> FloatArray = PcmWindowReader::read,
+    private val interpreter: SemanticInterpreter? = null,
 ) {
     suspend fun process(
         sessionId: SessionId,
@@ -261,7 +272,29 @@ class TranscriptionCoordinator(
                 endMs = plan.endMs,
                 samples = samples,
             )
-            when (val result = engine.transcribe(window)) {
+            val windowSpanMs = (plan.confirmedUntilMs - confirmedUntilMs).coerceAtLeast(0L)
+            val baseProcessedMs = processingRun.processedMs
+            val result = coroutineScope {
+                val progressChannel = Channel<Int>(Channel.CONFLATED)
+                launch {
+                    var lastPercent = -1
+                    for (percent in progressChannel) {
+                        if (percent <= lastPercent) continue
+                        lastPercent = percent
+                        val partial = (baseProcessedMs + windowSpanMs * percent / 100)
+                            .coerceIn(baseProcessedMs, run.totalMs)
+                        runCatching { store.updateWindowProgress(processingRun, partial) }
+                    }
+                }
+                try {
+                    engine.transcribe(window) { percent ->
+                        progressChannel.trySend(percent.coerceIn(0, 100))
+                    }
+                } finally {
+                    progressChannel.close()
+                }
+            }
+            when (result) {
                 is WindowTranscriptResult.Success -> {
                     val segmentComplete = plan.endMs >= segment.ready.durationMs
                     val savedCheckpoint = checkpoint.copy(
@@ -311,15 +344,26 @@ class TranscriptionCoordinator(
         if (store.sessionState(sessionId) == SessionState.TRANSCRIBING) {
             store.updateSession(sessionId, SessionState.EXTRACTING)
         }
-        val claims = reducer.reduce(extractor.extract(store.transcript(sessionId)))
+        val transcript = store.transcript(sessionId)
+        // La interpretación remota (router + fallback local) reemplaza a la extracción
+        // directa cuando hay un intérprete compuesto; el modo se aplica siempre localmente
+        // al proyectar, sin volver a llamar a la red.
+        val claims = interpreter?.interpret(sessionId, transcript)
+            ?: reducer.reduce(extractor.extract(transcript))
         val presentation = projector.project(claims, mode)
         val generatedDraft = DiaryDraft(
             sessionId.value,
             mode,
             values(presentation.accepted, ClaimCategory.TOPIC),
             values(presentation.accepted, ClaimCategory.ACTIVITY),
-            values(presentation.accepted, ClaimCategory.PAGE),
-            values(presentation.accepted, ClaimCategory.EXERCISE),
+            // Página y ejercicio combinados en un solo campo: "14 (3, a, b, 8)", una
+            // página por línea. Cada ejercicio se agrupa bajo la última página mencionada
+            // antes (línea temporal del audio), sirva el camino local o el de IA.
+            PagesAndExercisesComposer.compose(
+                claims.filter { it.active },
+                presentation.accepted.mapTo(HashSet()) { it.id },
+            ),
+            "",
             values(presentation.accepted, ClaimCategory.HOMEWORK),
             presentation.accepted,
             presentation.confirm,
@@ -425,4 +469,60 @@ class TranscriptionCoordinator(
     ) = claims.filter { it.category == category }
         .joinToString("\n") { it.value }
         .trim()
+}
+
+/**
+ * Combina páginas y ejercicios en un único campo, agrupando cada ejercicio bajo la última
+ * página mencionada antes en la línea temporal del audio. Resultado: `14 (3, a, b, 8)`, una
+ * página por línea. Funciona igual para el camino local (que ya trae "(p. N)" en el valor)
+ * y para el de IA (que da página y ejercicio como claims separados).
+ *
+ * `activeClaims` debe venir en orden de grabación (bloque + tiempo), como ya lo entrega el
+ * pipeline; `acceptedIds` son los ids de claims que el modo de interpretación acepta mostrar
+ * (la página se usa siempre como contexto, aunque no esté aceptada por sí sola).
+ */
+internal object PagesAndExercisesComposer {
+    fun compose(activeClaims: List<EvidenceClaim>, acceptedIds: Set<String>): String {
+        val groups = LinkedHashMap<String, MutableList<String>>()
+        val orphans = mutableListOf<String>()
+        var currentPage: String? = null
+        activeClaims.forEach { claim ->
+            when (claim.category) {
+                ClaimCategory.PAGE -> {
+                    val page = pageLabel(claim)
+                    currentPage = page
+                    if (claim.id in acceptedIds) groups.getOrPut(page) { mutableListOf() }
+                }
+                ClaimCategory.EXERCISE -> {
+                    if (claim.id !in acceptedIds) return@forEach
+                    val label = exerciseLabel(claim.value)
+                    if (label.isEmpty()) return@forEach
+                    val page = currentPage
+                    if (page != null) {
+                        val list = groups.getOrPut(page) { mutableListOf() }
+                        if (label !in list) list += label
+                    } else if (label !in orphans) {
+                        orphans += label
+                    }
+                }
+                else -> Unit
+            }
+        }
+        val lines = groups.map { (page, exercises) ->
+            if (exercises.isEmpty()) page else "$page (${exercises.joinToString(", ")})"
+        }.toMutableList()
+        if (orphans.isNotEmpty()) lines += orphans.joinToString(", ")
+        return lines.joinToString("\n").trim()
+    }
+
+    private fun pageLabel(claim: EvidenceClaim): String {
+        val source = claim.normalizedValue.ifBlank { claim.value }
+        return Regex("\\d+").find(source)?.value ?: claim.value.trim()
+    }
+
+    private fun exerciseLabel(value: String): String =
+        value
+            .replace(Regex("\\s*\\(p\\.[^)]*\\)\\s*$"), "")
+            .replace(Regex("^(?:ejercicios?|actividades?)\\s+", RegexOption.IGNORE_CASE), "")
+            .trim()
 }
