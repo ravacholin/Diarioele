@@ -57,7 +57,15 @@ I2, I3, I4, I5 e I6 pueden desarrollarse en paralelo después de I1. I4 es el ú
 
 ## Entrega 2: 0.6.0-quality-loop
 
-### Ola Q0, trabajo paralelo
+### Ola Q0
+
+| Tarea | Rama | Propiedad principal |
+|---|---|---|
+| Q0 Contratos del ciclo de calidad | `feature/phase6-task-q0-contracts` | contratos compartidos |
+
+Q0 se integra y queda verde antes de iniciar trabajo paralelo.
+
+### Ola Q1, trabajo paralelo
 
 | Tarea | Rama | Propiedad principal |
 |---|---|---|
@@ -67,15 +75,14 @@ I2, I3, I4, I5 e I6 pueden desarrollarse en paralelo después de I1. I4 es el ú
 | Q4 Feedback y revisión por campo | `feature/phase6-task-q4-feedback` | revisiones, ViewModel y UI |
 | Q5 Observabilidad completa | `feature/phase6-task-q5-observability` | estado visible y notificación |
 
-Q1, Q2 y Q3 parten de 0.5.2 verde. Q4 y Q5 dependen del esquema y journal integrados en I4/I5, pero no dependen entre sí.
+Q1–Q5 parten de Q0 verde. Q4 y Q5 consumen el esquema y journal integrados en I4/I5, pero no dependen entre sí.
 
-### Ola Q1
+### Ola Q2
 
 | Tarea | Rama | Dependencia |
 |---|---|---|
 | Q6 Corpus local y JSONL | `feature/phase6-task-q6-local-corpus` | Q1, Q4 |
-| Q7 Integración híbrida | `feature/phase6-task-q7-integration` | Q1, Q2, Q3, Q5 |
-| Q8 Release y benchmark | `feature/phase6-task-q8-release` | Q4, Q6, Q7 |
+| Q7 Integración, release y benchmark | `feature/phase6-task-q7-release` | Q1–Q6 |
 
 ## DAG
 
@@ -86,11 +93,11 @@ flowchart TD
     W1 --> I7["I7 UI y reproyección"]
     W1 --> I8["I8 Integración 0.5.2"]
     I7 --> I8
-    I8 --> Q0["Q1–Q5 en paralelo"]
-    Q0 --> Q6["Q6 Corpus local"]
-    Q0 --> Q7["Q7 Integración híbrida"]
-    Q6 --> Q8["Q8 Release 0.6.0"]
-    Q7 --> Q8
+    I8 --> Q0["Q0 Contratos de calidad"]
+    Q0 --> Q1["Q1–Q5 en paralelo"]
+    Q1 --> Q6["Q6 Corpus local"]
+    Q1 --> Q7["Q7 Release 0.6.0"]
+    Q6 --> Q7
 ```
 
 ## Archivos reservados
@@ -141,4 +148,4 @@ Después de cada PR:
 
 `0.5.2-integrity` se integra a `main` solamente después de CI verde, migración v5 poblada y prueba física de orden, tarea, modo local, timeout y reapertura.
 
-`0.6.0-quality-loop` se integra solamente después de CI verde, reporte de evaluación offline, prueba de feedback/corpus, benchmark manual de proveedores y prueba física completa en Moto g max.
+`0.6.0-quality-loop` se integra solamente después de Q0–Q7 verdes, reporte de evaluación offline, prueba de feedback/corpus, benchmark manual de proveedores y prueba física completa en Moto g max.
