@@ -58,7 +58,7 @@ La garantía de costo requiere claves de cuentas o proyectos sin facturación. L
 | 6. Caché Room | COMPLETA | Task 1 | PR #10, run #119 verde, `0b144da` → merge `a9812c0` |
 | 7. Router y fallback | COMPLETA | Tasks 2, 4, 5 y 6 | PR #11, run #124 verde, `bde19f9` → merge `9886202` |
 | 8. Integración y UI | COMPLETA | Task 7 | PR #12, run #130 verde, `5fbb38d` → merge `695115a` |
-| 9. Feedback y release | HABILITADA | Task 8 | sin PR; requiere el dispositivo |
+| 9. Feedback y release | EN CURSO | Task 8 | versión `0.5.0-free-router` + protocolo listos; falta prueba física |
 
 ## Siguiente acción exacta
 
@@ -68,12 +68,14 @@ Las **Tasks 1–8** están integradas y verdes. Solo resta **Task 9** (release +
 Task 9 -> feature/phase5-task-09-release
 ```
 
-Task 9:
+Task 9 (parte de código, lista tras integrar esta rama):
 
-- Cambiar `versionCode` de 6 a 7 y `versionName` a `0.5.0-free-router`.
-- Escribir `PHASE5_FREE_INFERENCE_DEVICE_TEST.md` con el protocolo: Gemini exitoso; Gemini 429→Groq; Gemini+Groq 429→OpenRouter; todos fallan→fallback local; modo avión; cambio de modo sin llamadas; cierre y reapertura con caché; edición/aprobación/limpieza; clave inválida sin exposición. Los fallos simulados solo en debug.
-- Verificación completa (`testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest lintRelease assembleRelease`), verificar el APK (modelo + `.so` ARM64 presentes, permisos previstos, sin claves) y actualizar continuidad.
-- **Cierre empírico:** instalar el APK release firmado exacto en el Moto g max y completar el protocolo. **Requiere el teléfono del usuario.** No se declara la fase completa sin esa prueba.
+- ✅ `versionCode` 6→7 y `versionName` `0.5.0-free-router`.
+- ✅ `PHASE5_FREE_INFERENCE_DEVICE_TEST.md` con el protocolo, ajustado a lo testeable con la UI actual (Gemini/Groq/OpenRouter exitosos, fallback local por modo avión, cambio de modo sin red, reapertura con caché, edición/aprobación/limpieza, clave inválida sin exposición).
+- La CI genera el APK **debug** `0.5.0-free-router` como artefacto (como en Fase 4); sirve para la prueba física.
+- **Cierre empírico (pendiente, del usuario):** instalar el APK en el Moto g max, cargar una clave de Gemini de un proyecto sin facturación y completar el protocolo. **Requiere el teléfono.** No se declara la fase completa sin esa prueba.
+
+Pendiente menor declarado para una iteración futura: el **hook de fallos simulados en debug** (para encadenar Gemini 429→Groq→OpenRouter sin quitar la red) y el **panel de estado de ejecución** (procedencia `MIXTO/LOCAL`, `REINTENTAR`/`CONTINUAR LOCAL`). El encadenamiento real solo se fuerza hoy con modo avión o clave inválida.
 
 Nota de alcance ya entregado en Task 8: la UI Compose se validó por compilación y por los tests del controlador (`ProviderSettingsControllerTest`); su aspecto y comportamiento visual se confirman recién en la prueba física. Quedó pendiente (menor) un panel de estado de ejecución con la procedencia `MIXTO/LOCAL` y `REINTENTAR`/`CONTINUAR LOCAL`, a ajustar con el dispositivo.
 
