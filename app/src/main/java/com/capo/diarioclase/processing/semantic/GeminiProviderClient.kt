@@ -17,7 +17,7 @@ import kotlinx.serialization.json.putJsonObject
 class GeminiProviderClient(
     private val transport: InferenceHttpTransport,
     private val promptFactory: InterpretationPromptFactory = InterpretationPromptFactory(),
-    private val modelId: String = FreeProviderCatalog.modelId(InferenceProvider.GEMINI),
+    private val modelId: String = DEFAULT_MODEL,
     private val endpoint: String =
         "https://generativelanguage.googleapis.com/v1beta/models/$DEFAULT_MODEL:generateContent",
 ) : InferenceProviderClient {
