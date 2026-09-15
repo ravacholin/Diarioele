@@ -152,6 +152,12 @@ class RoomProcessingStore(
                     it.evidence.endMs,
                     it.evidence.excerpt,
                     it.active,
+                    runId = it.runId,
+                    packetId = it.packetId,
+                    providerClaimKey = it.providerClaimKey,
+                    declaredConfidence = it.declaredConfidence,
+                    effectiveConfidence = it.effectiveConfidence,
+                    claimOrdinal = it.claimOrdinal,
                 )
             },
         )
@@ -204,6 +210,12 @@ class RoomProcessingStore(
             ClaimOrigin.valueOf(origin),
             EvidenceRef(BlockId(blockId), startMs, endMs, excerpt),
             active,
+            runId = runId,
+            packetId = packetId,
+            providerClaimKey = providerClaimKey.ifEmpty { id },
+            declaredConfidence = declaredConfidence,
+            effectiveConfidence = effectiveConfidence,
+            claimOrdinal = claimOrdinal,
         )
 
     private fun TranscriptSpanEntity.toDomain() =
