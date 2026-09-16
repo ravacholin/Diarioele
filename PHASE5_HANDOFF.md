@@ -6,7 +6,9 @@
 
 La Fase 5.1 está integrada en `main` como `0.5.1-free-router` (versionCode 8) mediante PR #14 y commit `63c4be6`. Incluye el router gratuito, las mejoras de velocidad/estado y la ficha combinada de páginas y ejercicios.
 
-La entrega `0.5.2-integrity` (versionCode 9) está armada en la rama de integración `feature/phase5-2-quality` con las tareas I1–I7 integradas y verdes en CI: contratos de identidad y estado (I1), cronología y presupuesto de paquetes (I2), materialización por estado (I3), persistencia y migración Room 5→6 (I4), runtime acotado con fallas semánticas aisladas (I5), gate de evaluación de integridad (I6), reproyección local del cambio de modo (I7) y journal cableado con estado semántico observable y "Continuar local" (I7b). Falta la prueba física en el Moto g max; ninguna CI verde la reemplaza, y no se integra a `main` hasta registrarla.
+La entrega `0.5.2-integrity` (versionCode 9) está armada en la rama de integración `feature/phase5-2-quality` con las tareas I1–I8 integradas y verdes en CI: contratos de identidad y estado (I1), cronología y presupuesto de paquetes (I2), materialización por estado (I3), persistencia y migración Room 5→6 (I4), runtime acotado con fallas semánticas aisladas (I5), gate de evaluación de integridad (I6), reproyección local del cambio de modo (I7), journal cableado con estado semántico observable y "Continuar local" (I7b) e integración/release (I8).
+
+La prueba física en el Moto g max se realizó con resultado satisfactorio (2026-09-16, APK `v0.5.2-integrity-rc1`, versionCode 9). Con CI verde y prueba de dispositivo registrada, `0.5.2-integrity` queda habilitada para integrarse a `main` mediante el PR integrador `feature/phase5-2-quality` → `main`.
 
 La Fase 4 permanece completa, validada por CI y probada con éxito en el Moto g max. La rama de Fase 5 parte de esa base funcional y no debe alterar el motor Whisper local.
 

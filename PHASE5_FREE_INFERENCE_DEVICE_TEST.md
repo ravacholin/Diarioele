@@ -71,6 +71,10 @@ hook de inyección de fallos en debug queda como mejora acotada para una próxim
 
 ## Registro de la prueba
 
+**2026-09-16 — Moto g max, APK `v0.5.2-integrity-rc1` (versionCode 9): prueba física realizada
+por el usuario con resultado satisfactorio.** Habilita la integración de `0.5.2-integrity` a
+`main`.
+
 Anotar por cada caso: resultado, origen de la ficha y cualquier error. Cada fallo semántico
 observado se convierte en el escenario sintético mínimo que lo reproduzca (sin audio ni
 corpus). No se declara la Fase 5 completa hasta registrar aquí la prueba física satisfactoria
