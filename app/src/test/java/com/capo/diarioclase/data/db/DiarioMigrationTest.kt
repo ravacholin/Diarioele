@@ -54,9 +54,10 @@ class DiarioMigrationTest {
                 DiarioDatabase.MIGRATION_2_3,
                 DiarioDatabase.MIGRATION_3_4,
                 DiarioDatabase.MIGRATION_4_5,
+                DiarioDatabase.MIGRATION_5_6,
             ).allowMainThreadQueries().build()
         try {
-            assertEquals(5, database.openHelper.writableDatabase.version)
+            assertEquals(6, database.openHelper.writableDatabase.version)
             assertEquals(0, queryCount(database.openHelper.writableDatabase, "transcription_runs"))
             assertEquals(0, queryCount(database.openHelper.writableDatabase, "transcription_checkpoints"))
             assertEquals(0, queryCount(database.openHelper.writableDatabase, "interpretation_cache"))
@@ -74,9 +75,85 @@ class DiarioMigrationTest {
             context.deleteDatabase(name)
         }
     }
+    @Test fun `version five to six migration preserves data and adds empty semantic tables`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "migration-5-6-${UUID.randomUUID()}.db"
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context).name(name)
+                .callback(object : SupportSQLiteOpenHelper.Callback(5) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL("CREATE TABLE sessions (id TEXT NOT NULL PRIMARY KEY,pedagogicalDate TEXT NOT NULL,level TEXT,state TEXT NOT NULL,startedAtEpochMs INTEGER NOT NULL,updatedAtEpochMs INTEGER NOT NULL)")
+                        db.execSQL("CREATE TABLE blocks (id TEXT NOT NULL PRIMARY KEY,sessionId TEXT NOT NULL,ordinal INTEGER NOT NULL,startedAtEpochMs INTEGER NOT NULL,endedAtEpochMs INTEGER,closeReason TEXT,FOREIGN KEY(sessionId) REFERENCES sessions(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+                        db.execSQL("CREATE INDEX index_blocks_sessionId ON blocks(sessionId)")
+                        db.execSQL("CREATE TABLE audio_segments (id TEXT NOT NULL PRIMARY KEY,blockId TEXT NOT NULL,ordinal INTEGER NOT NULL,path TEXT NOT NULL,byteCount INTEGER NOT NULL,durationMs INTEGER NOT NULL,sha256 TEXT,state TEXT NOT NULL,transcriptionAttempts INTEGER NOT NULL,FOREIGN KEY(blockId) REFERENCES blocks(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+                        db.execSQL("CREATE INDEX index_audio_segments_blockId ON audio_segments(blockId)")
+                        db.execSQL("CREATE UNIQUE INDEX index_audio_segments_path ON audio_segments(path)")
+                        db.execSQL("CREATE TABLE markers (id TEXT NOT NULL PRIMARY KEY,sessionId TEXT NOT NULL,blockId TEXT NOT NULL,absoluteEpochMs INTEGER NOT NULL,offsetMs INTEGER NOT NULL,type TEXT NOT NULL,note TEXT,FOREIGN KEY(blockId) REFERENCES blocks(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+                        db.execSQL("CREATE INDEX index_markers_sessionId ON markers(sessionId)")
+                        db.execSQL("CREATE INDEX index_markers_blockId ON markers(blockId)")
+                        DiarioDatabase.MIGRATION_1_2.migrate(db)
+                        DiarioDatabase.MIGRATION_2_3.migrate(db)
+                        DiarioDatabase.MIGRATION_3_4.migrate(db)
+                        DiarioDatabase.MIGRATION_4_5.migrate(db)
+                        db.execSQL("INSERT INTO sessions VALUES ('s1','2026-09-13',NULL,'AWAITING_REVIEW',1,1)")
+                        // Dos claims con el mismo valor de proveedor pero de paquetes distintos: en v5 se
+                        // distinguen solo por su id de fila. La migración les asigna providerClaimKey y confianzas.
+                        db.execSQL("INSERT INTO evidence_claims VALUES ('packet-a-C1','s1','PAGE','14','14','PERFORMED',0.9,'GEMINI','b1',1000,2000,'página catorce',1)")
+                        db.execSQL("INSERT INTO evidence_claims VALUES ('packet-b-C1','s1','PAGE','14','14','PERFORMED',0.8,'GROQ','b1',3000,4000,'página catorce',1)")
+                        db.execSQL("INSERT INTO diary_drafts VALUES ('draft','s1','CONSERVATIVE','Tema','Actividad','14','','Tarea',1,1)")
+                        db.execSQL("INSERT INTO interpretation_cache VALUES ('cache-1','packet-a','s1','GEMINI','gemini-free','p1','s1','{\"claims\":[]}',1)")
+                    }
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = error("unused")
+                }).build(),
+        )
+        try {
+            assertEquals(5, helper.writableDatabase.version)
+        } finally {
+            helper.close()
+        }
+        val database = Room.databaseBuilder(context, DiarioDatabase::class.java, name)
+            .addMigrations(DiarioDatabase.MIGRATION_5_6)
+            .allowMainThreadQueries().build()
+        try {
+            // Abrir con Room dispara la validación completa del esquema v6.
+            val db = database.openHelper.writableDatabase
+            assertEquals(6, db.version)
+            // Datos v5 sobreviven.
+            assertEquals(1, queryCount(db, "sessions"))
+            assertEquals(2, queryCount(db, "evidence_claims"))
+            assertEquals(1, queryCount(db, "diary_drafts"))
+            assertEquals(1, queryCount(db, "interpretation_cache"))
+            // Las columnas namespaced se rellenan desde los valores existentes.
+            assertEquals("packet-a-C1", queryString(db, "SELECT providerClaimKey FROM evidence_claims WHERE id='packet-a-C1'"))
+            assertEquals(0.9, queryDouble(db, "SELECT declaredConfidence FROM evidence_claims WHERE id='packet-a-C1'"), 0.0001)
+            assertEquals(0.9, queryDouble(db, "SELECT effectiveConfidence FROM evidence_claims WHERE id='packet-a-C1'"), 0.0001)
+            // Las tablas nuevas del grafo semántico existen y están vacías.
+            assertEquals(0, queryCount(db, "interpretation_runs"))
+            assertEquals(0, queryCount(db, "interpretation_packets"))
+            assertEquals(0, queryCount(db, "provider_attempts"))
+            assertEquals(0, queryCount(db, "claim_evidence"))
+            assertEquals(0, queryCount(db, "claim_supersessions"))
+        } finally {
+            database.close()
+            context.deleteDatabase(name)
+        }
+    }
+
     private fun queryCount(database: SupportSQLiteDatabase, table: String): Int =
         database.query("SELECT COUNT(*) FROM $table").use { cursor ->
             cursor.moveToFirst()
             cursor.getInt(0)
+        }
+
+    private fun queryString(database: SupportSQLiteDatabase, sql: String): String =
+        database.query(sql).use { cursor ->
+            cursor.moveToFirst()
+            cursor.getString(0)
+        }
+
+    private fun queryDouble(database: SupportSQLiteDatabase, sql: String): Double =
+        database.query(sql).use { cursor ->
+            cursor.moveToFirst()
+            cursor.getDouble(0)
         }
 }

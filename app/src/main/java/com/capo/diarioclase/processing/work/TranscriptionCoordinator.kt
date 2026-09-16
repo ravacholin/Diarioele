@@ -7,13 +7,14 @@ import com.capo.diarioclase.data.db.SessionId
 import com.capo.diarioclase.data.db.SessionState
 import com.capo.diarioclase.data.db.TranscriptionCheckpointEntity
 import com.capo.diarioclase.data.db.TranscriptionRunEntity
-import com.capo.diarioclase.processing.evidence.ClaimCategory
 import com.capo.diarioclase.processing.evidence.ClaimReducer
+import com.capo.diarioclase.processing.evidence.DiaryFieldMaterializer
 import com.capo.diarioclase.processing.evidence.DiaryDraft
 import com.capo.diarioclase.processing.evidence.EvidenceClaim
 import com.capo.diarioclase.processing.evidence.InterpretationMode
 import com.capo.diarioclase.processing.evidence.InterpretationProjector
 import com.capo.diarioclase.processing.evidence.LiteralClaimExtractor
+import com.capo.diarioclase.processing.evidence.PagesAndExercisesComposer
 import com.capo.diarioclase.processing.transcription.AudioWindow
 import com.capo.diarioclase.processing.transcription.AudioWindowPlan
 import com.capo.diarioclase.processing.transcription.AudioWindowPlanner
@@ -112,7 +113,11 @@ class TranscriptionCoordinator(
     private val engine: WindowTranscriptionEngine,
     private val extractor: LiteralClaimExtractor = LiteralClaimExtractor(),
     private val reducer: ClaimReducer = ClaimReducer(),
-    private val projector: InterpretationProjector = InterpretationProjector(),
+    projector: InterpretationProjector = InterpretationProjector(),
+    private val materializer: DiaryFieldMaterializer = DiaryFieldMaterializer(
+        projector,
+        PagesAndExercisesComposer(),
+    ),
     private val pcmReader: (File, AudioWindowPlan) -> FloatArray = PcmWindowReader::read,
     private val interpreter: SemanticInterpreter? = null,
 ) {
@@ -348,26 +353,9 @@ class TranscriptionCoordinator(
         // La interpretación remota (router + fallback local) reemplaza a la extracción
         // directa cuando hay un intérprete compuesto; el modo se aplica siempre localmente
         // al proyectar, sin volver a llamar a la red.
-        val claims = interpreter?.interpret(sessionId, transcript)
+        val claims = interpreter?.interpret(sessionId, transcript)?.claims
             ?: reducer.reduce(extractor.extract(transcript))
-        val presentation = projector.project(claims, mode)
-        val generatedDraft = DiaryDraft(
-            sessionId.value,
-            mode,
-            values(presentation.accepted, ClaimCategory.TOPIC),
-            values(presentation.accepted, ClaimCategory.ACTIVITY),
-            // Página y ejercicio combinados en un solo campo: "14 (3, a, b, 8)", una
-            // página por línea. Cada ejercicio se agrupa bajo la última página mencionada
-            // antes (línea temporal del audio), sirva el camino local o el de IA.
-            PagesAndExercisesComposer.compose(
-                claims.filter { it.active },
-                presentation.accepted.mapTo(HashSet()) { it.id },
-            ),
-            "",
-            values(presentation.accepted, ClaimCategory.HOMEWORK),
-            presentation.accepted,
-            presentation.confirm,
-        )
+        val generatedDraft = materializer.materialize(sessionId.value, mode, claims)
         val draft = store.draft(sessionId)?.takeIf { it.userEdited }?.let { edited ->
             generatedDraft.copy(
                 topics = edited.topics,
@@ -463,66 +451,4 @@ class TranscriptionCoordinator(
         updated: TranscriptionCheckpointEntity,
     ) = checkpoints.filterNot { it.audioSegmentId == updated.audioSegmentId } + updated
 
-    private fun values(
-        claims: List<EvidenceClaim>,
-        category: ClaimCategory,
-    ) = claims.filter { it.category == category }
-        .joinToString("\n") { it.value }
-        .trim()
-}
-
-/**
- * Combina páginas y ejercicios en un único campo, agrupando cada ejercicio bajo la última
- * página mencionada antes en la línea temporal del audio. Resultado: `14 (3, a, b, 8)`, una
- * página por línea. Funciona igual para el camino local (que ya trae "(p. N)" en el valor)
- * y para el de IA (que da página y ejercicio como claims separados).
- *
- * `activeClaims` debe venir en orden de grabación (bloque + tiempo), como ya lo entrega el
- * pipeline; `acceptedIds` son los ids de claims que el modo de interpretación acepta mostrar
- * (la página se usa siempre como contexto, aunque no esté aceptada por sí sola).
- */
-internal object PagesAndExercisesComposer {
-    fun compose(activeClaims: List<EvidenceClaim>, acceptedIds: Set<String>): String {
-        val groups = LinkedHashMap<String, MutableList<String>>()
-        val orphans = mutableListOf<String>()
-        var currentPage: String? = null
-        activeClaims.forEach { claim ->
-            when (claim.category) {
-                ClaimCategory.PAGE -> {
-                    val page = pageLabel(claim)
-                    currentPage = page
-                    if (claim.id in acceptedIds) groups.getOrPut(page) { mutableListOf() }
-                }
-                ClaimCategory.EXERCISE -> {
-                    if (claim.id !in acceptedIds) return@forEach
-                    val label = exerciseLabel(claim.value)
-                    if (label.isEmpty()) return@forEach
-                    val page = currentPage
-                    if (page != null) {
-                        val list = groups.getOrPut(page) { mutableListOf() }
-                        if (label !in list) list += label
-                    } else if (label !in orphans) {
-                        orphans += label
-                    }
-                }
-                else -> Unit
-            }
-        }
-        val lines = groups.map { (page, exercises) ->
-            if (exercises.isEmpty()) page else "$page (${exercises.joinToString(", ")})"
-        }.toMutableList()
-        if (orphans.isNotEmpty()) lines += orphans.joinToString(", ")
-        return lines.joinToString("\n").trim()
-    }
-
-    private fun pageLabel(claim: EvidenceClaim): String {
-        val source = claim.normalizedValue.ifBlank { claim.value }
-        return Regex("\\d+").find(source)?.value ?: claim.value.trim()
-    }
-
-    private fun exerciseLabel(value: String): String =
-        value
-            .replace(Regex("\\s*\\(p\\.[^)]*\\)\\s*$"), "")
-            .replace(Regex("^(?:ejercicios?|actividades?)\\s+", RegexOption.IGNORE_CASE), "")
-            .trim()
 }

@@ -43,6 +43,13 @@ class SemanticClaimReducer {
                 claimKey = claim.claimKey,
                 evidences = claim.evidences,
                 supersedesClaimKeys = claim.supersedesClaimKeys,
+                runId = claim.runId,
+                packetId = claim.packetId,
+                providerClaimKey = claim.providerClaimKey,
+                declaredConfidence = claim.declaredConfidence,
+                effectiveConfidence = claim.effectiveConfidence,
+                transcriptSpanIds = claim.transcriptSpanIds,
+                claimOrdinal = claim.claimOrdinal,
             )
         }
     }

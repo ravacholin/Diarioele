@@ -19,9 +19,14 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TranscriptionRunEntity::class,
         TranscriptionCheckpointEntity::class,
         InterpretationCacheEntity::class,
+        InterpretationRunEntity::class,
+        InterpretationPacketEntity::class,
+        ProviderAttemptEntity::class,
+        ClaimEvidenceEntity::class,
+        ClaimSupersessionEntity::class,
     ],
-    version = 5,
-    exportSchema = false,
+    version = 6,
+    exportSchema = true,
 )
 abstract class DiarioDatabase : RoomDatabase() {
     abstract fun sessions(): SessionDao
@@ -69,6 +74,36 @@ abstract class DiarioDatabase : RoomDatabase() {
                 db.execSQL("CREATE TABLE IF NOT EXISTS interpretation_cache (cacheId TEXT NOT NULL PRIMARY KEY,packetId TEXT NOT NULL,sessionId TEXT NOT NULL,provider TEXT NOT NULL,modelId TEXT NOT NULL,promptVersion TEXT NOT NULL,schemaVersion TEXT NOT NULL,validatedJson TEXT NOT NULL,createdAtEpochMs INTEGER NOT NULL)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_interpretation_cache_sessionId ON interpretation_cache(sessionId)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_interpretation_cache_packetId ON interpretation_cache(packetId)")
+            }
+        }
+
+        /**
+         * v5→v6: persiste el grafo semántico completo. Es aditiva y no destructiva; ningún
+         * dato v5 se pierde. Las columnas namespaced de `evidence_claims` traen default para
+         * cubrir las filas legacy y luego se rellenan a partir de los valores existentes.
+         */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE evidence_claims ADD COLUMN runId TEXT")
+                db.execSQL("ALTER TABLE evidence_claims ADD COLUMN packetId TEXT")
+                db.execSQL("ALTER TABLE evidence_claims ADD COLUMN providerClaimKey TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE evidence_claims ADD COLUMN declaredConfidence REAL NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE evidence_claims ADD COLUMN effectiveConfidence REAL NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE evidence_claims ADD COLUMN claimOrdinal INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE evidence_claims SET providerClaimKey=id,declaredConfidence=confidence,effectiveConfidence=confidence")
+
+                db.execSQL("CREATE TABLE IF NOT EXISTS interpretation_runs (id TEXT NOT NULL PRIMARY KEY,sessionId TEXT NOT NULL,state TEXT NOT NULL,appVersion TEXT NOT NULL,whisperVersion TEXT NOT NULL,promptVersion TEXT NOT NULL,schemaVersion TEXT NOT NULL,validatorVersion TEXT NOT NULL,transcriptHash TEXT NOT NULL,mode TEXT NOT NULL,provenance TEXT,failure TEXT,startedAtEpochMs INTEGER NOT NULL,completedAtEpochMs INTEGER)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_interpretation_runs_sessionId ON interpretation_runs(sessionId)")
+
+                db.execSQL("CREATE TABLE IF NOT EXISTS interpretation_packets (runId TEXT NOT NULL,packetId TEXT NOT NULL,ordinal INTEGER NOT NULL,state TEXT NOT NULL,requestHash TEXT NOT NULL,requestBytes INTEGER NOT NULL,provider TEXT,startedAtEpochMs INTEGER,completedAtEpochMs INTEGER,PRIMARY KEY(runId,packetId))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_interpretation_packets_runId ON interpretation_packets(runId)")
+
+                db.execSQL("CREATE TABLE IF NOT EXISTS provider_attempts (id TEXT NOT NULL PRIMARY KEY,runId TEXT NOT NULL,packetId TEXT NOT NULL,provider TEXT NOT NULL,modelId TEXT NOT NULL,attempt INTEGER NOT NULL,cacheHit INTEGER NOT NULL,outcome TEXT NOT NULL,durationMs INTEGER NOT NULL,startedAtEpochMs INTEGER NOT NULL)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_provider_attempts_runId_packetId ON provider_attempts(runId,packetId)")
+
+                db.execSQL("CREATE TABLE IF NOT EXISTS claim_evidence (claimId TEXT NOT NULL,transcriptSpanId TEXT NOT NULL,ordinal INTEGER NOT NULL,contextual INTEGER NOT NULL,PRIMARY KEY(claimId,transcriptSpanId))")
+
+                db.execSQL("CREATE TABLE IF NOT EXISTS claim_supersessions (newClaimId TEXT NOT NULL,oldClaimId TEXT NOT NULL,PRIMARY KEY(newClaimId,oldClaimId))")
             }
         }
     }

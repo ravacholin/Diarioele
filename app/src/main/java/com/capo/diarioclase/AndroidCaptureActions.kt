@@ -9,6 +9,7 @@ import com.capo.diarioclase.recording.*
 import com.capo.diarioclase.recording.service.RecordingService
 import com.capo.diarioclase.ui.capture.CaptureActions
 import com.capo.diarioclase.processing.evidence.InterpretationMode
+import com.capo.diarioclase.processing.work.LocalDraftReprojector
 import com.capo.diarioclase.diary.cleanup.CleanupOutcome
 class AndroidCaptureActions(private val context:Context,private val app:DiarioClaseApp):CaptureActions{
  override suspend fun startNewDay(){val battery=context.getSystemService(BatteryManager::class.java).getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);when(val r=PreflightChecker().check(context.filesDir.usableSpace,battery,ContextCompat.checkSelfPermission(context,Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)){PreflightResult.Ready->{val id=app.repository.createSession(null);start(RecordingService.ACTION_START,id)};is PreflightResult.Blocked->error(when(r.reason){PreflightReason.INSUFFICIENT_SPACE->"Falta espacio libre";PreflightReason.MICROPHONE_PERMISSION->"Falta permiso de micrófono";PreflightReason.CRITICAL_BATTERY->"Batería demasiado baja"})}}
@@ -16,9 +17,13 @@ class AndroidCaptureActions(private val context:Context,private val app:DiarioCl
  override suspend fun pause(){ContextCompat.startForegroundService(context,Intent(context,RecordingService::class.java).setAction(RecordingService.ACTION_PAUSE))}
  override suspend fun markHomework(sessionId:SessionId,blockId:BlockId){val b=app.database.sessions().block(blockId.value)?:return;app.recovery.markHomework(sessionId,blockId,b.startedAtEpochMs,System.currentTimeMillis())}
  override suspend fun finalizeDay(id:SessionId,state:SessionState){if(state==SessionState.RECORDING)ContextCompat.startForegroundService(context,Intent(context,RecordingService::class.java).setAction(RecordingService.ACTION_FINALIZE)) else app.repository.finalizeSession(id)}
- override suspend fun startProcessing(id:SessionId,mode:InterpretationMode)=app.transcriptionScheduler.start(id,mode)
+ override suspend fun startProcessing(id:SessionId,mode:InterpretationMode){preferLocal(false);app.transcriptionScheduler.start(id,mode)}
  override suspend fun pauseProcessing(id:SessionId)=app.transcriptionScheduler.pause(id)
- override suspend fun resumeProcessing(id:SessionId,mode:InterpretationMode)=app.transcriptionScheduler.resume(id,mode)
+ override suspend fun resumeProcessing(id:SessionId,mode:InterpretationMode){preferLocal(false);app.transcriptionScheduler.resume(id,mode)}
+ override suspend fun continueLocal(id:SessionId,mode:InterpretationMode){preferLocal(true);app.transcriptionScheduler.resume(id,mode)}
+ private suspend fun preferLocal(enabled:Boolean){app.database.sessions().saveSetting(AppSettingEntity("prefer_local_interpretation",enabled.toString()))}
+ private val reprojector by lazy{LocalDraftReprojector(app.processingStore)}
+ override suspend fun reprojectMode(id:SessionId,mode:InterpretationMode){reprojector.reproject(id,mode)}
  override suspend fun saveDraft(draft:DiaryDraftEntity){app.processingStore.saveEditedDraft(draft)}
  override suspend fun approveAndClean(draft:DiaryDraftEntity):CleanupOutcome=app.cleanupCoordinator.approveAndClean(SessionId(draft.sessionId),draft)
  override suspend fun retryCleanup(sessionId:SessionId):CleanupOutcome=app.cleanupCoordinator.retryCleanup(sessionId)

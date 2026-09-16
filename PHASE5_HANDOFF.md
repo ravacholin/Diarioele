@@ -1,18 +1,27 @@
 # Fase 5: estado y continuidad
 
-Última actualización: 2026-09-15
+Última actualización: 2026-09-16
 
 ## Estado actual
 
-La Fase 5 está **completa a nivel de código**. **Las Tasks 1–9 (parte de código) están integradas y verdes** en `feature/phase5-contextual-interpretation` (`5ac8132`): motor de inferencia gratuito cableado al procesamiento, UI de configuración de proveedores y versión `0.5.0-free-router`. Lo **único pendiente es la prueba física en el Moto g max** (protocolo en `PHASE5_FREE_INFERENCE_DEVICE_TEST.md`), que requiere el teléfono del usuario. Ninguna CI verde la reemplaza.
+La Fase 5.1 está integrada en `main` como `0.5.1-free-router` (versionCode 8) mediante PR #14 y commit `63c4be6`. Incluye el router gratuito, las mejoras de velocidad/estado y la ficha combinada de páginas y ejercicios.
+
+La entrega `0.5.2-integrity` (versionCode 9) está armada en la rama de integración `feature/phase5-2-quality` con las tareas I1–I8 integradas y verdes en CI: contratos de identidad y estado (I1), cronología y presupuesto de paquetes (I2), materialización por estado (I3), persistencia y migración Room 5→6 (I4), runtime acotado con fallas semánticas aisladas (I5), gate de evaluación de integridad (I6), reproyección local del cambio de modo (I7), journal cableado con estado semántico observable y "Continuar local" (I7b) e integración/release (I8).
+
+La prueba física en el Moto g max se realizó con resultado satisfactorio (2026-09-16, APK `v0.5.2-integrity-rc1`, versionCode 9). Con CI verde y prueba de dispositivo registrada, `0.5.2-integrity` queda habilitada para integrarse a `main` mediante el PR integrador `feature/phase5-2-quality` → `main`.
 
 La Fase 4 permanece completa, validada por CI y probada con éxito en el Moto g max. La rama de Fase 5 parte de esa base funcional y no debe alterar el motor Whisper local.
 
 ## Fuente de verdad
 
 - Repositorio: `ravacholin/Diarioele`
-- Base estable: `feature/phase4-whisper-recovery`
-- Rama de integración: `feature/phase5-contextual-interpretation`
+- Base estable: `main@63c4be6cfe5c07f42dd91d8f6948b194e276da56`
+- Rama de integración: `feature/phase5-2-quality`
+- PR de diseño y planes: `#15`
+- Diseño vigente: `docs/superpowers/specs/2026-09-15-phase5-2-quality-design.md`
+- Plan de integridad: `docs/superpowers/plans/2026-09-15-phase5-2-integrity.md`
+- Plan de calidad: `docs/superpowers/plans/2026-09-15-phase6-quality-loop.md`
+- Coordinación vigente: `PHASE5_2_AGENT_COLLABORATION.md`
 - Head documental inicial de Fase 5: `d4bf31be623e7d6bacb8bb42fb71ebf065f45d37`
 - Diseño: `docs/superpowers/specs/2026-09-14-contextual-interpretation-design.md`
 - Plan: `docs/superpowers/plans/2026-09-14-contextual-interpretation.md`
@@ -61,6 +70,10 @@ La garantía de costo requiere claves de cuentas o proyectos sin facturación. L
 | 9. Feedback y release | CÓDIGO COMPLETO | Task 8 | PR #13, run #134 verde, `ab5caa7` → merge `5ac8132`; falta prueba física |
 
 ## Siguiente acción exacta
+
+Ejecutar I0 y luego I1 desde el último head verde de `feature/phase5-2-quality`. Cada tarea usa su rama y abre PR contra la integración. Después de I1 verde se habilitan I2–I6 según `PHASE5_2_AGENT_COLLABORATION.md`.
+
+## Estado histórico de la Fase 5 inicial
 
 Las **Tasks 1–8** están integradas y verdes. Solo resta **Task 9** (release + prueba física), en la rama:
 

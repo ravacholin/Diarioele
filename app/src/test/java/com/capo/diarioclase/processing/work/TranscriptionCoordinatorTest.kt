@@ -16,6 +16,7 @@ import com.capo.diarioclase.processing.evidence.EvidenceClaim
 import com.capo.diarioclase.processing.evidence.EvidenceRef
 import com.capo.diarioclase.processing.evidence.InterpretationMode
 import com.capo.diarioclase.processing.evidence.LiteralClaimExtractor
+import com.capo.diarioclase.processing.evidence.PagesAndExercisesComposer
 import com.capo.diarioclase.processing.transcription.AudioWindow
 import com.capo.diarioclase.processing.transcription.TranscriptDeduplicator
 import com.capo.diarioclase.processing.transcription.TranscriptSpan
@@ -71,9 +72,47 @@ class TranscriptionCoordinatorTest {
             claim("e6", ClaimCategory.EXERCISE, "2"),
         )
 
-        val text = PagesAndExercisesComposer.compose(claims, claims.mapTo(HashSet()) { it.id })
+        val text = PagesAndExercisesComposer().compose(claims)
 
         assertEquals("14 (3, a, b, 8)\n22 (1, 2)", text)
+    }
+
+    @Test
+    fun `semantic assigned exercise is materialized as homework`() = runTest {
+        val store = FakeStore(durations = linkedMapOf("a" to 1_000L))
+        val engine = RecordingWindowEngine {
+            WindowTranscriptResult.Success(listOf(span(it, "Ejercicio cuatro para mañana")))
+        }
+        val evidence = EvidenceRef(BlockId("block"), 0, 1_000, "ejercicio cuatro")
+        val interpreter = object : SemanticInterpreter {
+            override suspend fun interpret(
+                sessionId: SessionId,
+                spans: List<TranscriptSpan>,
+                budget: InterpretationBudget,
+            ) = InterpretationOutcome.Remote(
+                listOf(
+                    EvidenceClaim(
+                        id = "e1",
+                        category = ClaimCategory.EXERCISE,
+                        value = "4",
+                        normalizedValue = "4",
+                        status = ClaimStatus.ASSIGNED,
+                        confidence = 1.0,
+                        origin = ClaimOrigin.GEMINI,
+                        evidence = evidence,
+                    ),
+                ),
+            )
+        }
+
+        val result = coordinator(store, engine, interpreter).process(
+            SessionId("day"),
+            InterpretationMode.CONSERVATIVE,
+        ) as ProcessingOutcome.Complete
+
+        assertEquals("4", result.draft.homework)
+        assertEquals("", result.draft.pages)
+        assertEquals("", result.draft.exercises)
     }
 
     @Test
@@ -209,6 +248,7 @@ class TranscriptionCoordinatorTest {
     private fun coordinator(
         store: FakeStore,
         engine: WindowTranscriptionEngine,
+        interpreter: SemanticInterpreter? = null,
     ) = TranscriptionCoordinator(
         store = store,
         engine = engine,
@@ -216,6 +256,7 @@ class TranscriptionCoordinatorTest {
         pcmReader = { _, plan ->
             FloatArray(((plan.endMs - plan.startMs) * 16).toInt())
         },
+        interpreter = interpreter,
     )
 
     private fun span(window: AudioWindow, text: String) = TranscriptSpan(
