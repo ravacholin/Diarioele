@@ -2,7 +2,10 @@ package com.capo.diarioclase.recording.audio
 
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.filters.SdkSuppress
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -12,6 +15,8 @@ import kotlin.math.sin
 
 class AndroidOpusEncoderTest {
     @Test
+    @RequiresApi(Build.VERSION_CODES.Q)
+    @SdkSuppress(minSdkVersion = Build.VERSION_CODES.Q)
     fun encodesStreamingPcmAsInspectableOggOpus() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val output = File(context.cacheDir, "opus-round-trip-${System.nanoTime()}.ogg")
