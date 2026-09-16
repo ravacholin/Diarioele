@@ -29,6 +29,12 @@ class AndroidCaptureActions(private val context:Context,private val app:DiarioCl
  override suspend fun retryInterpretation(id:SessionId,mode:InterpretationMode){preferLocal(false);app.transcriptionScheduler.resume(id,mode)}
  override suspend fun saveExample(id:SessionId){app.localExampleService.savePreview(app.localExampleService.preview(id.value))}
  override suspend fun deleteAllExamples(){app.localExampleService.deleteAll()}
+ override suspend fun exportCorpus(uri:String){app.localExampleService.exportJsonl(contentResolverIo(),uri)}
+ override suspend fun importCorpus(uri:String){app.localExampleService.importJsonl(contentResolverIo(),uri)}
+ private fun contentResolverIo()=object:com.capo.diarioclase.processing.evaluation.ExampleDocumentIo{
+  override fun read(uri:String):String=context.contentResolver.openInputStream(android.net.Uri.parse(uri))?.use{it.readBytes().toString(Charsets.UTF_8)}.orEmpty()
+  override fun write(uri:String,content:String){context.contentResolver.openOutputStream(android.net.Uri.parse(uri),"wt")?.use{it.write(content.toByteArray(Charsets.UTF_8))}}
+ }
  override suspend fun approveAndClean(draft:DiaryDraftEntity):CleanupOutcome=app.cleanupCoordinator.approveAndClean(SessionId(draft.sessionId),draft)
  override suspend fun retryCleanup(sessionId:SessionId):CleanupOutcome=app.cleanupCoordinator.retryCleanup(sessionId)
  private fun start(action:String,id:SessionId){ContextCompat.startForegroundService(context,Intent(context,RecordingService::class.java).setAction(action).putExtra(RecordingService.EXTRA_SESSION_ID,id.value))}

@@ -79,6 +79,10 @@ class RoomProcessingStore(
     fun observeLatestInterpretationRun(): Flow<com.capo.diarioclase.data.db.InterpretationRunEntity?> =
         dao.observeLatestRunAny()
 
+    /** Último intento de proveedor de la corrida más reciente (Fase 6, Q5), para la UI de progreso. */
+    fun observeLatestAttempt(): Flow<com.capo.diarioclase.data.db.ProviderAttemptEntity?> =
+        dao.observeLatestAttempt()
+
     /**
      * Guarda la ficha reproyectada respetando una edición previa del docente: si la ficha
      * almacenada está marcada como editada, sus campos ganan; siempre se actualiza el modo.
