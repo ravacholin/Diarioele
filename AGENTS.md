@@ -22,7 +22,7 @@ Los planes definen la implementación técnica. `PHASE5_2_AGENT_COLLABORATION.md
 - Estado actualizado: `PHASE5_HANDOFF.md`
 - Fase 4: completa, validada por CI y probada en Moto g max.
 - Fase 5.1: integrada en `main` como `0.5.1-free-router`; falta validación física.
-- Próxima entrega: `0.5.2-integrity`.
+- Entrega `0.5.2-integrity` (versionCode 9): armada en `feature/phase5-2-quality` con I1–I7b integradas y verdes en CI. Falta la prueba física en el Moto g max antes de integrar a `main`.
 
 Antes de trabajar, comprobar que estos datos no hayan sido superados por un checkpoint más reciente en `PHASE5_HANDOFF.md`.
 
