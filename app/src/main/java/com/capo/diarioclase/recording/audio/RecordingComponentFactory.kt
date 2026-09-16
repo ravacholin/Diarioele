@@ -24,10 +24,15 @@ class RecordingComponentFactory(
     oggReader: AudioWindowReader = AndroidOpusWindowReader(),
 ) {
     val cleanupFiles: CleanupFileStore = TemporaryAudioFiles(root)
-    val rawSegments: SegmentStore = OpusSegmentStore(
+    private val opusSegments: SegmentStore = OpusSegmentStore(
         root = root,
         encoderFactory = encoderFactory,
         inspector = inspector,
+    )
+    val rawSegments: SegmentStore = LegacyCompatibleSegmentStore(
+        primary = opusSegments,
+        legacy = FileSegmentStore(root),
+        cleanup = cleanupFiles,
     )
     val windowReader: AudioWindowReader = FormatAwareAudioWindowReader(wavReader, oggReader)
 
