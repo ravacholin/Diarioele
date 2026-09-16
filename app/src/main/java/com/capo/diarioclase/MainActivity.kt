@@ -131,6 +131,7 @@ class MainActivity : ComponentActivity() {
                                         onDeleteExamples = capture::onDeleteAllExamples,
                                         onExportCorpus = { exportCorpus.launch("corpus-diarioele.jsonl") },
                                         onImportCorpus = { importCorpus.launch(arrayOf("application/json")) },
+                                        onRetryInterpretation = { capture.onRetryInterpretation(archiveState.mode) },
                                     )
                                 }
                             }

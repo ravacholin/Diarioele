@@ -170,7 +170,13 @@ class DiarioClaseApp : Application() {
         providerSettingsController = ProviderSettingsController(
             settings = providerSettings,
             credentials = providerCredentials,
-            connectionTester = RealProviderConnectionTester(clients, providerCredentials),
+            connectionTester = RealProviderConnectionTester(
+                clients,
+                providerCredentials,
+                // Preflight de facturación de OpenRouter (Fase 6, Q2): una clave con capacidad de
+                // gasto queda deshabilitada antes de enviar el paquete de prueba.
+                openRouterPreflight = com.capo.diarioclase.processing.semantic.OpenRouterBillingPreflight(transport),
+            ),
         )
         appScope.launch {
             database.sessions().recoverInterruptedTranscriptions()
