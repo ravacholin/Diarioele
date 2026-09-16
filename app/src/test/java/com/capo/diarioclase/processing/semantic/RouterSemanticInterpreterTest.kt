@@ -57,6 +57,17 @@ class RouterSemanticInterpreterTest {
     }
 
     @Test
+    fun `manual markers surface as local homework candidates`() = runTest {
+        val signals = LocalInterpretationSignals(
+            markers = listOf(ManualMarkerSignal(markerId = "m1", type = "HOMEWORK", blockId = "blk", offsetMs = 2_500)),
+        )
+        val claims = interpreter().interpret(SessionId("s"), spans, InterpretationBudget(), signals).claims
+        assertTrue(
+            claims.any { it.category == ClaimCategory.HOMEWORK && it.provenance == ClaimProvenance.LOCAL && it.active },
+        )
+    }
+
+    @Test
     fun `a valid gemini response yields remote claims`() = runTest {
         val validJson = ProviderClaimsCodec.encode(
             listOf(ProviderSemanticClaim("B1-C1", "PAGE", "42", "42", "PERFORMED", 0.95, listOf("B1-S1"), emptyList())),
@@ -103,9 +114,15 @@ class RouterSemanticInterpreterTest {
     fun `session deadline falls back locally without throwing and stays within budget`() = runTest {
         // Un proveedor que nunca responde dentro del presupuesto: el paquete se cancela y cae
         // al fallback local, sin propagar la cancelación como falla de transcripción.
-        val slow = InferenceProviderClient { _, _ ->
-            delay(10 * 60_000L)
-            FakeInferenceProviderClient.success(InferenceProvider.GEMINI, validJson)
+        val slow = object : InferenceProviderClient {
+            override suspend fun infer(
+                request: InterpretationRequest,
+                credential: EphemeralCredential,
+                attempt: InferenceAttemptContext,
+            ): ProviderOutcome {
+                delay(10 * 60_000L)
+                return FakeInferenceProviderClient.success(InferenceProvider.GEMINI, validJson)
+            }
         }
 
         val outcome = interpreterWith(mapOf(InferenceProvider.GEMINI to slow))

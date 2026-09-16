@@ -55,9 +55,10 @@ class DiarioMigrationTest {
                 DiarioDatabase.MIGRATION_3_4,
                 DiarioDatabase.MIGRATION_4_5,
                 DiarioDatabase.MIGRATION_5_6,
+                DiarioDatabase.MIGRATION_6_7,
             ).allowMainThreadQueries().build()
         try {
-            assertEquals(6, database.openHelper.writableDatabase.version)
+            assertEquals(7, database.openHelper.writableDatabase.version)
             assertEquals(0, queryCount(database.openHelper.writableDatabase, "transcription_runs"))
             assertEquals(0, queryCount(database.openHelper.writableDatabase, "transcription_checkpoints"))
             assertEquals(0, queryCount(database.openHelper.writableDatabase, "interpretation_cache"))
@@ -112,12 +113,12 @@ class DiarioMigrationTest {
             helper.close()
         }
         val database = Room.databaseBuilder(context, DiarioDatabase::class.java, name)
-            .addMigrations(DiarioDatabase.MIGRATION_5_6)
+            .addMigrations(DiarioDatabase.MIGRATION_5_6, DiarioDatabase.MIGRATION_6_7)
             .allowMainThreadQueries().build()
         try {
-            // Abrir con Room dispara la validación completa del esquema v6.
+            // Abrir con Room dispara la validación completa del esquema v7.
             val db = database.openHelper.writableDatabase
-            assertEquals(6, db.version)
+            assertEquals(7, db.version)
             // Datos v5 sobreviven.
             assertEquals(1, queryCount(db, "sessions"))
             assertEquals(2, queryCount(db, "evidence_claims"))
@@ -133,6 +134,72 @@ class DiarioMigrationTest {
             assertEquals(0, queryCount(db, "provider_attempts"))
             assertEquals(0, queryCount(db, "claim_evidence"))
             assertEquals(0, queryCount(db, "claim_supersessions"))
+        } finally {
+            database.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test fun `version six to seven adds review tables, protects edited fields and records revisions`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "migration-6-7-${UUID.randomUUID()}.db"
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context).name(name)
+                .callback(object : SupportSQLiteOpenHelper.Callback(6) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL("CREATE TABLE sessions (id TEXT NOT NULL PRIMARY KEY,pedagogicalDate TEXT NOT NULL,level TEXT,state TEXT NOT NULL,startedAtEpochMs INTEGER NOT NULL,updatedAtEpochMs INTEGER NOT NULL)")
+                        db.execSQL("CREATE TABLE blocks (id TEXT NOT NULL PRIMARY KEY,sessionId TEXT NOT NULL,ordinal INTEGER NOT NULL,startedAtEpochMs INTEGER NOT NULL,endedAtEpochMs INTEGER,closeReason TEXT,FOREIGN KEY(sessionId) REFERENCES sessions(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+                        db.execSQL("CREATE INDEX index_blocks_sessionId ON blocks(sessionId)")
+                        db.execSQL("CREATE TABLE audio_segments (id TEXT NOT NULL PRIMARY KEY,blockId TEXT NOT NULL,ordinal INTEGER NOT NULL,path TEXT NOT NULL,byteCount INTEGER NOT NULL,durationMs INTEGER NOT NULL,sha256 TEXT,state TEXT NOT NULL,transcriptionAttempts INTEGER NOT NULL,FOREIGN KEY(blockId) REFERENCES blocks(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+                        db.execSQL("CREATE INDEX index_audio_segments_blockId ON audio_segments(blockId)")
+                        db.execSQL("CREATE UNIQUE INDEX index_audio_segments_path ON audio_segments(path)")
+                        db.execSQL("CREATE TABLE markers (id TEXT NOT NULL PRIMARY KEY,sessionId TEXT NOT NULL,blockId TEXT NOT NULL,absoluteEpochMs INTEGER NOT NULL,offsetMs INTEGER NOT NULL,type TEXT NOT NULL,note TEXT,FOREIGN KEY(blockId) REFERENCES blocks(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+                        db.execSQL("CREATE INDEX index_markers_sessionId ON markers(sessionId)")
+                        db.execSQL("CREATE INDEX index_markers_blockId ON markers(blockId)")
+                        DiarioDatabase.MIGRATION_1_2.migrate(db)
+                        DiarioDatabase.MIGRATION_2_3.migrate(db)
+                        DiarioDatabase.MIGRATION_3_4.migrate(db)
+                        DiarioDatabase.MIGRATION_4_5.migrate(db)
+                        DiarioDatabase.MIGRATION_5_6.migrate(db)
+                        db.execSQL("INSERT INTO sessions VALUES ('legacy','2026-09-15',NULL,'AWAITING_REVIEW',1,1)")
+                        // Ficha legacy marcada como editada: la máscara debe cubrir los cinco campos.
+                        db.execSQL("INSERT INTO diary_drafts VALUES ('draft','legacy','CONSERVATIVE','Tema editado','Actividad','14','7','Tarea editada',1,1)")
+                    }
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = error("unused")
+                }).build(),
+        )
+        try {
+            assertEquals(6, helper.writableDatabase.version)
+        } finally {
+            helper.close()
+        }
+        val database = Room.databaseBuilder(context, DiarioDatabase::class.java, name)
+            .addMigrations(DiarioDatabase.MIGRATION_6_7)
+            .allowMainThreadQueries().build()
+        try {
+            val db = database.openHelper.writableDatabase // valida el esquema v7 completo
+            assertEquals(7, db.version)
+            assertEquals(0, queryCount(db, "draft_field_revisions"))
+            // La ficha legacy editada propaga la máscara a los cinco campos.
+            val legacy = database.sessions().draft("legacy")!!
+            assertTrue(legacy.editedTopics && legacy.editedHomework && legacy.editedPages)
+
+            val store = RoomProcessingStore(database, Clock { 5 })
+
+            // Una edición de tarea protege solo la tarea (máscara por campo).
+            database.sessions().insertSession(SessionEntity("s2", "2026-09-15", null, "AWAITING_REVIEW", 2, 2))
+            store.saveEvidence(SessionId("s2"), emptyList(), DiaryDraft("s2", InterpretationMode.CONSERVATIVE, "Auto", "", "", "", "", emptyList(), emptyList()))
+            store.saveFieldEdit(SessionId("s2"), com.capo.diarioclase.processing.semantic.DiaryField.HOMEWORK, "Ejercicio 4")
+            assertTrue(store.isFieldEdited(SessionId("s2"), com.capo.diarioclase.processing.semantic.DiaryField.HOMEWORK))
+            assertFalse(store.isFieldEdited(SessionId("s2"), com.capo.diarioclase.processing.semantic.DiaryField.TOPICS))
+            store.saveEvidence(SessionId("s2"), emptyList(), DiaryDraft("s2", InterpretationMode.CONSERVATIVE, "Auto 2", "", "", "", "Tarea automática", emptyList(), emptyList()))
+            val protected = database.sessions().draft("s2")!!
+            assertEquals("Ejercicio 4", protected.homework) // protegida
+            assertEquals("Auto 2", protected.topics) // no editada, se actualiza
+
+            // Rechazar un claim registra una revisión.
+            store.reviewClaim("claim-1", ReviewAction.REJECT, null)
+            assertEquals(ReviewAction.REJECT, store.revisions("claim-1").single().action)
         } finally {
             database.close()
             context.deleteDatabase(name)

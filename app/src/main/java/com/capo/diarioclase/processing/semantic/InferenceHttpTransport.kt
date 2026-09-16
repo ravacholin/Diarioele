@@ -28,6 +28,20 @@ interface InferenceHttpTransport {
         connectTimeoutMs: Int = 10_000,
         readTimeoutMs: Int = 30_000,
     ): HttpTransportResult
+
+    /**
+     * GET acotado y sin cuerpo para preflights de solo lectura (Q2): la inspección de la clave
+     * de OpenRouter (`GET /api/v1/key`) para detectar capacidad de gasto antes de habilitar el
+     * proveedor. Mantiene la misma allowlist de hosts y no sigue redirects. Nunca se usa para
+     * enviar transcripción.
+     */
+    suspend fun get(
+        url: String,
+        headers: Map<String, String>,
+        connectTimeoutMs: Int = 10_000,
+        readTimeoutMs: Int = 10_000,
+    ): HttpTransportResult =
+        throw UnsupportedOperationException("GET no soportado por este transporte.")
 }
 
 data class HttpTransportResult(
@@ -79,6 +93,55 @@ class DefaultInferenceHttpTransport(
                 continuation.invokeOnCancellation { runCatching { connection.disconnect() } }
                 try {
                     connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+                    val status = connection.responseCode
+                    val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+                    val responseBody = stream?.bufferedReader(Charsets.UTF_8)?.use { reader ->
+                        readBounded(reader)
+                    }.orEmpty()
+                    val responseHeaders = buildMap {
+                        connection.headerFields.forEach { (name, values) ->
+                            if (name != null) put(name, values.firstOrNull().orEmpty())
+                        }
+                    }
+                    if (continuation.isActive) {
+                        continuation.resume(HttpTransportResult(status, responseBody, responseHeaders))
+                    }
+                } catch (t: Throwable) {
+                    if (continuation.isActive) continuation.resumeWithException(t)
+                } finally {
+                    runCatching { connection.disconnect() }
+                }
+            }
+        }
+    }
+
+    override suspend fun get(
+        url: String,
+        headers: Map<String, String>,
+        connectTimeoutMs: Int,
+        readTimeoutMs: Int,
+    ): HttpTransportResult {
+        val parsed = URL(url)
+        if (!parsed.protocol.equals("https", ignoreCase = true)) {
+            throw TransportPolicyException("Solo se permite HTTPS.")
+        }
+        if (parsed.host !in ALLOWED_HOSTS) {
+            throw TransportPolicyException("Host no permitido.")
+        }
+
+        return withContext(ioDispatcher) {
+            val connection = openConnection(parsed).apply {
+                requestMethod = "GET"
+                instanceFollowRedirects = false
+                connectTimeout = connectTimeoutMs
+                readTimeout = readTimeoutMs
+                setRequestProperty("Accept", "application/json")
+                headers.forEach { (name, value) -> setRequestProperty(name, value) }
+            }
+
+            suspendCancellableCoroutine { continuation ->
+                continuation.invokeOnCancellation { runCatching { connection.disconnect() } }
+                try {
                     val status = connection.responseCode
                     val stream = if (status in 200..299) connection.inputStream else connection.errorStream
                     val responseBody = stream?.bufferedReader(Charsets.UTF_8)?.use { reader ->

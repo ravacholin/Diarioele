@@ -24,8 +24,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ProviderAttemptEntity::class,
         ClaimEvidenceEntity::class,
         ClaimSupersessionEntity::class,
+        DraftFieldRevisionEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class DiarioDatabase : RoomDatabase() {
@@ -104,6 +105,35 @@ abstract class DiarioDatabase : RoomDatabase() {
                 db.execSQL("CREATE TABLE IF NOT EXISTS claim_evidence (claimId TEXT NOT NULL,transcriptSpanId TEXT NOT NULL,ordinal INTEGER NOT NULL,contextual INTEGER NOT NULL,PRIMARY KEY(claimId,transcriptSpanId))")
 
                 db.execSQL("CREATE TABLE IF NOT EXISTS claim_supersessions (newClaimId TEXT NOT NULL,oldClaimId TEXT NOT NULL,PRIMARY KEY(newClaimId,oldClaimId))")
+            }
+        }
+
+        /**
+         * v6→v7: revisión estructurada del docente (Fase 6, Q4). Agrega la máscara de edición por
+         * campo a `diary_drafts` y la tabla `draft_field_revisions`. Es aditiva y no destructiva.
+         * Las filas legacy con `userEdited=1` marcan los cinco campos como editados, de forma
+         * conservadora, para no reemplazar correcciones previas del docente.
+         */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE diary_drafts ADD COLUMN editedTopics INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE diary_drafts ADD COLUMN editedActivities INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE diary_drafts ADD COLUMN editedPages INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE diary_drafts ADD COLUMN editedExercises INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE diary_drafts ADD COLUMN editedHomework INTEGER NOT NULL DEFAULT 0")
+                db.execSQL(
+                    "UPDATE diary_drafts SET editedTopics=userEdited,editedActivities=userEdited," +
+                        "editedPages=userEdited,editedExercises=userEdited,editedHomework=userEdited",
+                )
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS draft_field_revisions (id TEXT NOT NULL PRIMARY KEY," +
+                        "sessionId TEXT NOT NULL,field TEXT NOT NULL,beforeValue TEXT NOT NULL," +
+                        "afterValue TEXT NOT NULL,actor TEXT NOT NULL,action TEXT NOT NULL," +
+                        "claimId TEXT,createdAtEpochMs INTEGER NOT NULL)",
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_draft_field_revisions_sessionId ON draft_field_revisions(sessionId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_draft_field_revisions_claimId ON draft_field_revisions(claimId)")
             }
         }
     }

@@ -17,6 +17,13 @@ data class ProviderAttemptInfo(
     val startedAtEpochMs: Long,
 )
 
+/** Resultado remoto de rutear un paquete (Q3): claims aceptadas o vacío con las fallas. */
+data class RemoteRoute(
+    val claims: List<RawClaim>,
+    val provider: InferenceProvider?,
+    val failures: List<ProviderFailure>,
+)
+
 /** Resultado de rutear un paquete: remoto validado, o fallback local. */
 sealed interface RoutedPacketOutcome {
     data class Remote(
@@ -56,6 +63,31 @@ class FreeInferenceRouter(
     private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
     private val consecutiveTransientToOpen: Int = 2,
 ) {
+
+    /**
+     * Rutea un paquete y devuelve solo el resultado remoto aceptado (Fase 6, Q3): las claims del
+     * proveedor que ganó, o una lista vacía con las fallas si ninguno respondió. No hace la
+     * extracción local; eso lo hace el [RouterSemanticInterpreter], que fusiona local + remoto.
+     */
+    suspend fun routeRemote(
+        sessionId: String,
+        packet: InterpretationRequest,
+        providers: List<ProviderModel>,
+        disabledProviders: MutableSet<InferenceProvider> = mutableSetOf(),
+        runId: String = "",
+        sourceSpanIds: Map<String, String> = emptyMap(),
+        deadlineEpochMs: Long? = null,
+        transientStrikes: MutableMap<InferenceProvider, Int> = mutableMapOf(),
+        onAttempt: (suspend (ProviderAttemptInfo) -> Unit)? = null,
+    ): RemoteRoute = when (
+        val outcome = route(
+            sessionId, packet, providers, disabledProviders, runId,
+            sourceSpanIds, deadlineEpochMs, transientStrikes, onAttempt,
+        )
+    ) {
+        is RoutedPacketOutcome.Remote -> RemoteRoute(outcome.claims, outcome.provider, emptyList())
+        is RoutedPacketOutcome.Local -> RemoteRoute(emptyList(), null, outcome.failures)
+    }
 
     suspend fun route(
         sessionId: String,
@@ -99,9 +131,12 @@ class FreeInferenceRouter(
 
             var requestsUsed = 0
             var goLocal = false
+            // El primer intento es inicial; una respuesta inválida habilita un único reintento
+            // correctivo (Q2) que viaja con contexto de reparación para que el prompt lo refleje.
+            var attemptContext = InferenceAttemptContext.initial()
             while (requestsUsed < retryPolicy.maxRequestsPerProvider) {
                 val startedAt = nowEpochMs()
-                val outcome = client.infer(packet, credential)
+                val outcome = client.infer(packet, credential, attemptContext)
                 val durationMs = nowEpochMs() - startedAt
                 requestsUsed++
 
@@ -153,7 +188,11 @@ class FreeInferenceRouter(
                         if (!waitFitsBudget(wait, deadlineEpochMs)) break
                         onDelay(wait)
                     }
-                    RetryDecision.CORRECT -> Unit // solicitud correctiva inmediata
+                    RetryDecision.CORRECT ->
+                        // Solicitud correctiva inmediata: el segundo intento pide corregir el
+                        // formato. No transporta cuerpo ni transcripción, solo el marcador de
+                        // reintento; los códigos de issue semánticos se cablean en Q3.
+                        attemptContext = InferenceAttemptContext.repair(emptySet())
                     RetryDecision.STOP_PROVIDER -> break
                     RetryDecision.STOP_ALL -> {
                         goLocal = true

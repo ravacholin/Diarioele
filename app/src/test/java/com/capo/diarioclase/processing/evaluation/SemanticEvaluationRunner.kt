@@ -12,6 +12,7 @@ import com.capo.diarioclase.processing.semantic.DiaryField
 import com.capo.diarioclase.processing.semantic.EphemeralCredential
 import com.capo.diarioclase.processing.semantic.FallbackClaimExtractor
 import com.capo.diarioclase.processing.semantic.FreeInferenceRouter
+import com.capo.diarioclase.processing.semantic.InferenceAttemptContext
 import com.capo.diarioclase.processing.semantic.InferenceProvider
 import com.capo.diarioclase.processing.semantic.InferenceProviderClient
 import com.capo.diarioclase.processing.semantic.InterpretationRequest
@@ -54,6 +55,31 @@ data class EvaluationReport(
 }
 
 /**
+ * Métricas deterministas de una corrida de evaluación (Fase 6, Q7). Enteros más telemetría por
+ * proveedor; precisión/cobertura/F1 se derivan solo con denominadores no nulos.
+ */
+data class EvaluationSummary(
+    val expected: Int,
+    val predicted: Int,
+    val truePositive: Int,
+    val evidenceCorrect: Int,
+    val statusCorrect: Int,
+    val exactFieldMatches: Int,
+    val providerAttempts: Map<String, Int>,
+    val providerInvalidResponses: Map<String, Int>,
+    val providerFallbacks: Map<String, Int>,
+    val cacheHits: Map<String, Int>,
+) {
+    fun precision(): Double? = if (predicted > 0) truePositive.toDouble() / predicted else null
+    fun recall(): Double? = if (expected > 0) truePositive.toDouble() / expected else null
+    fun f1(): Double? {
+        val p = precision()
+        val r = recall()
+        return if (p != null && r != null && p + r > 0) 2 * p * r / (p + r) else null
+    }
+}
+
+/**
  * Gate de evaluación de integridad offline (Task I6). Corre el pipeline real —router con la
  * identidad global de Task I5, validador, reducer y materializer— sobre transcripciones
  * sintéticas y contrasta el resultado con expectativas tipadas. No llama a proveedores
@@ -77,8 +103,13 @@ class SemanticEvaluationRunner(
 
         packets.forEach { packet ->
             val json = ProviderClaimsCodec.encode(packet.gold)
-            val client = InferenceProviderClient { _, _ ->
-                ProviderOutcome.Success(InferenceProvider.GEMINI, "eval-model", json)
+            val client = object : InferenceProviderClient {
+                override suspend fun infer(
+                    request: InterpretationRequest,
+                    credential: EphemeralCredential,
+                    attempt: InferenceAttemptContext,
+                ): ProviderOutcome =
+                    ProviderOutcome.Success(InferenceProvider.GEMINI, "eval-model", json)
             }
             val router = FreeInferenceRouter(
                 clients = mapOf(InferenceProvider.GEMINI to client),
@@ -131,6 +162,82 @@ class SemanticEvaluationRunner(
     suspend fun assertMatches(packets: List<EvalPacket>, expectation: SemanticExpectation) {
         val report = evaluate(packets, expectation)
         if (!report.ok) throw AssertionError("Evaluación de integridad falló:\n${report.describe()}")
+    }
+
+    /**
+     * Métricas deterministas de una corrida (Fase 6, Q7). Cuenta enteros y telemetría por
+     * proveedor; la precisión/cobertura/F1 se derivan solo con denominadores no nulos.
+     */
+    suspend fun summarize(packets: List<EvalPacket>, expectation: SemanticExpectation): EvaluationSummary {
+        val disabled = mutableSetOf<InferenceProvider>()
+        val strikes = mutableMapOf<InferenceProvider, Int>()
+        val raw = mutableListOf<RawClaim>()
+        val attempts = HashMap<String, Int>()
+        val invalid = HashMap<String, Int>()
+        val fallbacks = HashMap<String, Int>()
+        val cacheHits = HashMap<String, Int>()
+
+        packets.forEach { packet ->
+            val json = ProviderClaimsCodec.encode(packet.gold)
+            val client = object : InferenceProviderClient {
+                override suspend fun infer(
+                    request: InterpretationRequest,
+                    credential: EphemeralCredential,
+                    attempt: InferenceAttemptContext,
+                ): ProviderOutcome = ProviderOutcome.Success(InferenceProvider.GEMINI, "eval-model", json)
+            }
+            val router = FreeInferenceRouter(
+                clients = mapOf(InferenceProvider.GEMINI to client),
+                validator = validator,
+                fallback = FallbackClaimExtractor(),
+                retryPolicy = ProviderRetryPolicy(retryDelayMs = 0),
+                cache = null,
+                credentialFor = { EphemeralCredential("k") },
+                onDelay = {},
+                nowEpochMs = { 1 },
+            )
+            val request = InterpretationRequest(packet.packetId, "free-ele-v1", "claims-v1", packet.spans)
+            val sources = packet.spans.associate { it.publicId to "t-${it.publicId}" }
+            val outcome = router.route(
+                "eval", request, listOf(ProviderModel(InferenceProvider.GEMINI, "eval-model")),
+                disabled, "eval-run", sources, transientStrikes = strikes,
+                onAttempt = { info ->
+                    val key = info.provider.name
+                    attempts[key] = (attempts[key] ?: 0) + 1
+                    if (info.cacheHit) cacheHits[key] = (cacheHits[key] ?: 0) + 1
+                    if (info.outcome != "REMOTE_OK") invalid[key] = (invalid[key] ?: 0) + 1
+                },
+            )
+            when (outcome) {
+                is RoutedPacketOutcome.Remote -> raw += outcome.claims
+                is RoutedPacketOutcome.Local -> {
+                    fallbacks["LOCAL"] = (fallbacks["LOCAL"] ?: 0) + 1
+                    raw += outcome.claims
+                }
+            }
+        }
+
+        val claims = reducer.reduce(raw)
+        val draft = materializer.materialize("eval", mode, claims)
+        val active = claims.filter { it.active }
+        val activeExpectations = active.map { ClaimExpectation(it.category, it.normalizedValue, it.status) }.toSet()
+        val byValue = active.map { it.category to it.normalizedValue }.toSet()
+        val truePositive = expectation.required.count { (it.category to it.normalizedValue) in byValue }
+        val statusCorrect = expectation.required.count { it in activeExpectations }
+        val exactFieldMatches = expectation.expectedFields.count { (field, value) -> fieldValue(draft, field) == value }
+
+        return EvaluationSummary(
+            expected = expectation.required.size,
+            predicted = active.size,
+            truePositive = truePositive,
+            evidenceCorrect = active.count { it.evidences.isNotEmpty() },
+            statusCorrect = statusCorrect,
+            exactFieldMatches = exactFieldMatches,
+            providerAttempts = attempts,
+            providerInvalidResponses = invalid,
+            providerFallbacks = fallbacks,
+            cacheHits = cacheHits,
+        )
     }
 
     private fun fieldValue(draft: DiaryDraft, field: DiaryField): String = when (field) {

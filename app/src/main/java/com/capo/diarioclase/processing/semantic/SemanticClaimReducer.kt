@@ -1,6 +1,7 @@
 package com.capo.diarioclase.processing.semantic
 
 import com.capo.diarioclase.processing.evidence.ClaimCategory
+import com.capo.diarioclase.processing.evidence.ClaimOrigin
 import com.capo.diarioclase.processing.evidence.EvidenceClaim
 import com.capo.diarioclase.processing.evidence.RawClaim
 
@@ -50,7 +51,39 @@ class SemanticClaimReducer {
                 effectiveConfidence = claim.effectiveConfidence,
                 transcriptSpanIds = claim.transcriptSpanIds,
                 claimOrdinal = claim.claimOrdinal,
+                provenance = claim.origin.toProvenance(),
             )
         }
+    }
+
+    /**
+     * Reducción final de claims ya fusionados por [HybridClaimMerger] (Fase 6, Q3): resuelve
+     * supersesión y duplicados exactos entre paquetes conservando las decisiones del merger.
+     * Nunca reactiva un claim que el merger marcó inactivo.
+     */
+    fun reduceMerged(claims: List<EvidenceClaim>): List<EvidenceClaim> {
+        val superseded = claims.flatMap { it.supersedesClaimKeys }.toSet()
+
+        val lastActiveIndex = HashMap<Pair<ClaimCategory, String>, Int>()
+        claims.forEachIndexed { index, claim ->
+            if (claim.active && claim.claimKey !in superseded) {
+                lastActiveIndex[claim.category to claim.normalizedValue] = index
+            }
+        }
+
+        return claims.mapIndexed { index, claim ->
+            val active = claim.active &&
+                claim.claimKey !in superseded &&
+                lastActiveIndex[claim.category to claim.normalizedValue] == index
+            claim.copy(active = active)
+        }
+    }
+
+    private fun ClaimOrigin.toProvenance(): com.capo.diarioclase.processing.semantic.ClaimProvenance = when (this) {
+        ClaimOrigin.LOCAL_RULE, ClaimOrigin.MANUAL_MARKER ->
+            com.capo.diarioclase.processing.semantic.ClaimProvenance.LOCAL
+        ClaimOrigin.USER_EDIT ->
+            com.capo.diarioclase.processing.semantic.ClaimProvenance.USER
+        else -> com.capo.diarioclase.processing.semantic.ClaimProvenance.REMOTE
     }
 }

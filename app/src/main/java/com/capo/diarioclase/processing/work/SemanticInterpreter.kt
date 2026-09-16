@@ -1,6 +1,7 @@
 package com.capo.diarioclase.processing.work
 
 import com.capo.diarioclase.data.db.SessionId
+import com.capo.diarioclase.processing.semantic.LocalInterpretationSignals
 import com.capo.diarioclase.processing.transcription.TranscriptSpan
 
 /**
@@ -18,5 +19,8 @@ interface SemanticInterpreter {
         sessionId: SessionId,
         spans: List<TranscriptSpan>,
         budget: InterpretationBudget = InterpretationBudget(),
+        // Señales locales (marcadores manuales) que acompañan la fusión híbrida (Fase 6, Q3).
+        // No viajan a un proveedor. El wiring desde el store se completa en Q7.
+        signals: LocalInterpretationSignals = LocalInterpretationSignals(),
     ): InterpretationOutcome
 }

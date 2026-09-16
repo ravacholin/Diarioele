@@ -57,6 +57,7 @@ Antes de trabajar, comprobar que estos datos no hayan sido superados por un chec
 
 ## Próxima tarea
 
-Ejecutar `0.5.2-integrity` según `docs/superpowers/plans/2026-09-15-phase5-2-integrity.md`.
-
-La secuencia comienza con I0 (readiness) e I1 (contratos). Solo después de integrar ambos y tener CI verde se habilitan I2–I6. La propiedad de archivos, ramas y dependencias está en `PHASE5_2_AGENT_COLLABORATION.md`.
+Fase 6 (quality loop) completa a nivel de código: Q0–Q7 implementadas y verdes en CI
+(`0.6.0-quality-loop`, versionCode 10). Falta la prueba física en el Moto g max según
+`PHASE6_QUALITY_DEVICE_TEST.md` antes de integrar a `main`; no fusionar sin CI verde,
+escaneo de secretos sin hallazgos, migración 6→7 verificada y el benchmark físico registrado.

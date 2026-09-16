@@ -8,6 +8,11 @@ import com.capo.diarioclase.data.db.ClaimEvidenceEntity
 import com.capo.diarioclase.data.db.ClaimSupersessionEntity
 import com.capo.diarioclase.data.db.DiaryDraftEntity
 import com.capo.diarioclase.data.db.DiarioDatabase
+import com.capo.diarioclase.data.db.DraftFieldRevision
+import com.capo.diarioclase.data.db.DraftFieldRevisionEntity
+import com.capo.diarioclase.data.db.ReviewAction
+import com.capo.diarioclase.processing.semantic.DiaryField
+import java.util.UUID
 import com.capo.diarioclase.data.db.EvidenceClaimEntity
 import com.capo.diarioclase.data.db.SegmentId
 import com.capo.diarioclase.data.db.SegmentState
@@ -80,19 +85,8 @@ class RoomProcessingStore(
      * No reescribe claims: la reproyección de Task I7 parte de los ya persistidos.
      */
     override suspend fun mergeFieldEditsAndSave(draft: DiaryDraft): DiaryDraft = database.withTransaction {
-        val edited = dao.draft(draft.sessionId)?.takeIf { it.userEdited }
-        val merged = DiaryDraftEntity(
-            id = draft.sessionId,
-            sessionId = draft.sessionId,
-            mode = draft.mode.name,
-            topics = edited?.topics ?: draft.topics,
-            activities = edited?.activities ?: draft.activities,
-            pages = edited?.pages ?: draft.pages,
-            exercises = edited?.exercises ?: draft.exercises,
-            homework = edited?.homework ?: draft.homework,
-            updatedAtEpochMs = clock.nowEpochMs(),
-            userEdited = edited?.userEdited ?: false,
-        )
+        val existing = dao.draft(draft.sessionId)
+        val merged = draft.protectedBy(existing, mode = draft.mode.name)
         dao.saveDraft(merged)
         draft.copy(
             topics = merged.topics,
@@ -102,6 +96,30 @@ class RoomProcessingStore(
             homework = merged.homework,
         )
     }
+
+    /**
+     * Combina una ficha nueva con las ediciones previas del docente, protegiendo **solo** los
+     * campos marcados como editados (máscara por campo de Q4). Conserva la máscara y la bandera
+     * global legacy.
+     */
+    private fun DiaryDraft.protectedBy(existing: DiaryDraftEntity?, mode: String): DiaryDraftEntity =
+        DiaryDraftEntity(
+            id = sessionId,
+            sessionId = sessionId,
+            mode = mode,
+            topics = if (existing?.editedTopics == true) existing.topics else topics,
+            activities = if (existing?.editedActivities == true) existing.activities else activities,
+            pages = if (existing?.editedPages == true) existing.pages else pages,
+            exercises = if (existing?.editedExercises == true) existing.exercises else exercises,
+            homework = if (existing?.editedHomework == true) existing.homework else homework,
+            updatedAtEpochMs = clock.nowEpochMs(),
+            userEdited = existing?.userEdited ?: false,
+            editedTopics = existing?.editedTopics ?: false,
+            editedActivities = existing?.editedActivities ?: false,
+            editedPages = existing?.editedPages ?: false,
+            editedExercises = existing?.editedExercises ?: false,
+            editedHomework = existing?.editedHomework ?: false,
+        )
 
     override suspend fun sessionState(id: SessionId) =
         SessionState.valueOf(requireNotNull(dao.session(id.value)).state)
@@ -254,21 +272,7 @@ class RoomProcessingStore(
                 )
             }
         }
-        val fields = existingDraft?.takeIf { it.userEdited }
-        dao.saveDraft(
-            DiaryDraftEntity(
-                id.value,
-                id.value,
-                draft.mode.name,
-                fields?.topics ?: draft.topics,
-                fields?.activities ?: draft.activities,
-                fields?.pages ?: draft.pages,
-                fields?.exercises ?: draft.exercises,
-                fields?.homework ?: draft.homework,
-                clock.nowEpochMs(),
-                fields?.userEdited ?: false,
-            ),
-        )
+        dao.saveDraft(draft.protectedBy(existingDraft, mode = draft.mode.name))
     }
 
     override suspend fun updateSession(id: SessionId, state: SessionState) {
@@ -289,8 +293,129 @@ class RoomProcessingStore(
 
     override suspend fun draft(id: SessionId) = dao.draft(id.value)
 
+    /**
+     * Carga los marcadores manuales de la sesión como señales locales (Fase 6, Q7). Los ids de
+     * marcador y de bloque quedan locales y nunca viajan a un proveedor.
+     */
+    override suspend fun loadSignals(id: SessionId): com.capo.diarioclase.processing.semantic.LocalInterpretationSignals =
+        com.capo.diarioclase.processing.semantic.LocalInterpretationSignals(
+            markers = dao.markersForSession(id.value).map { marker ->
+                com.capo.diarioclase.processing.semantic.ManualMarkerSignal(
+                    markerId = marker.id,
+                    type = marker.type,
+                    blockId = marker.blockId,
+                    offsetMs = marker.offsetMs,
+                )
+            },
+        )
+
     suspend fun saveEditedDraft(draft: DiaryDraftEntity) =
         dao.saveDraft(draft.copy(updatedAtEpochMs = clock.nowEpochMs(), userEdited = true))
+
+    // --- Revisión estructurada del docente (Fase 6, Q4) --------------------------------
+
+    /**
+     * Edita un campo de la ficha protegiendo solo ese campo (máscara por campo). Registra la
+     * revisión antes de actualizar la ficha. No toca proveedores ni el scheduler.
+     */
+    suspend fun saveFieldEdit(session: SessionId, field: DiaryField, value: String): Unit =
+        database.withTransaction {
+            val existing = dao.draft(session.value) ?: return@withTransaction
+            dao.insertRevision(
+                revision(session.value, field.name, existing.fieldValue(field), value, ReviewAction.CORRECT, claimId = null),
+            )
+            dao.saveDraft(
+                existing.withField(field, value)
+                    .copy(updatedAtEpochMs = clock.nowEpochMs(), userEdited = true),
+            )
+        }
+
+    suspend fun isFieldEdited(session: SessionId, field: DiaryField): Boolean =
+        dao.draft(session.value)?.isEdited(field) ?: false
+
+    /**
+     * Aplica una decisión de revisión sobre un claim (aceptar/rechazar/corregir). Escribe la
+     * revisión antes de actualizar el claim. Corregir exige un valor no vacío. Sin red ni scheduler.
+     */
+    suspend fun reviewClaim(claimId: String, action: ReviewAction, correctedValue: String?): Unit =
+        database.withTransaction {
+            if (action == ReviewAction.CORRECT) require(!correctedValue.isNullOrBlank())
+            val claim = dao.claimById(claimId)
+            val before = claim?.value.orEmpty()
+            val after = when (action) {
+                ReviewAction.CORRECT -> correctedValue.orEmpty()
+                ReviewAction.REJECT -> ""
+                ReviewAction.ACCEPT -> before
+            }
+            val field = claim?.let { categoryField(it.category) }?.name.orEmpty()
+            dao.insertRevision(revision(claim?.sessionId.orEmpty(), field, before, after, action, claimId))
+            when (action) {
+                ReviewAction.ACCEPT -> dao.setClaimActive(claimId, true)
+                ReviewAction.REJECT -> dao.setClaimActive(claimId, false)
+                ReviewAction.CORRECT -> dao.setClaimValue(claimId, correctedValue!!, correctedValue)
+            }
+        }
+
+    suspend fun revisions(claimId: String): List<DraftFieldRevision> =
+        dao.revisionsForClaim(claimId).map { it.toDomain() }
+
+    suspend fun sessionRevisions(sessionId: String): List<DraftFieldRevision> =
+        dao.revisionsForSession(sessionId).map { it.toDomain() }
+
+    private fun revision(
+        sessionId: String,
+        field: String,
+        before: String,
+        after: String,
+        action: ReviewAction,
+        claimId: String?,
+    ) = DraftFieldRevisionEntity(
+        id = UUID.randomUUID().toString(),
+        sessionId = sessionId,
+        field = field,
+        beforeValue = before,
+        afterValue = after,
+        actor = "USER",
+        action = action.name,
+        claimId = claimId,
+        createdAtEpochMs = clock.nowEpochMs(),
+    )
+
+    private fun DraftFieldRevisionEntity.toDomain() = DraftFieldRevision(
+        id, sessionId, field, beforeValue, afterValue, actor, ReviewAction.valueOf(action), claimId, createdAtEpochMs,
+    )
+
+    private fun categoryField(category: String): DiaryField = when (category) {
+        ClaimCategory.TOPIC.name -> DiaryField.TOPICS
+        ClaimCategory.ACTIVITY.name -> DiaryField.ACTIVITIES
+        ClaimCategory.PAGE.name -> DiaryField.PAGES
+        ClaimCategory.EXERCISE.name -> DiaryField.EXERCISES
+        else -> DiaryField.HOMEWORK
+    }
+
+    private fun DiaryDraftEntity.fieldValue(field: DiaryField): String = when (field) {
+        DiaryField.TOPICS -> topics
+        DiaryField.ACTIVITIES -> activities
+        DiaryField.PAGES -> pages
+        DiaryField.EXERCISES -> exercises
+        DiaryField.HOMEWORK -> homework
+    }
+
+    private fun DiaryDraftEntity.isEdited(field: DiaryField): Boolean = when (field) {
+        DiaryField.TOPICS -> editedTopics
+        DiaryField.ACTIVITIES -> editedActivities
+        DiaryField.PAGES -> editedPages
+        DiaryField.EXERCISES -> editedExercises
+        DiaryField.HOMEWORK -> editedHomework
+    }
+
+    private fun DiaryDraftEntity.withField(field: DiaryField, value: String): DiaryDraftEntity = when (field) {
+        DiaryField.TOPICS -> copy(topics = value, editedTopics = true)
+        DiaryField.ACTIVITIES -> copy(activities = value, editedActivities = true)
+        DiaryField.PAGES -> copy(pages = value, editedPages = true)
+        DiaryField.EXERCISES -> copy(exercises = value, editedExercises = true)
+        DiaryField.HOMEWORK -> copy(homework = value, editedHomework = true)
+    }
 
     private fun EvidenceClaimEntity.toDomain() =
         EvidenceClaim(

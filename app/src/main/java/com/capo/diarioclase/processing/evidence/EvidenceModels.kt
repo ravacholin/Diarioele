@@ -1,6 +1,7 @@
 package com.capo.diarioclase.processing.evidence
 
 import com.capo.diarioclase.data.db.BlockId
+import com.capo.diarioclase.processing.semantic.ClaimProvenance
 
 enum class ClaimCategory { TOPIC, ACTIVITY, PAGE, EXERCISE, HOMEWORK }
 enum class ClaimStatus { PERFORMED, ASSIGNED, PROPOSED, CANCELLED, CORRECTED, UNCERTAIN }
@@ -65,6 +66,8 @@ data class EvidenceClaim(
     val effectiveConfidence: Double = confidence,
     val transcriptSpanIds: List<String> = emptyList(),
     val claimOrdinal: Int = 0,
+    // Procedencia de la fusión híbrida local + remota (Fase 6, Q3).
+    val provenance: ClaimProvenance = ClaimProvenance.REMOTE,
 )
 data class ClaimPresentation(val accepted: List<EvidenceClaim>, val confirm: List<EvidenceClaim>, val hidden: List<EvidenceClaim>) {
     val visibleCount get() = accepted.size + confirm.size

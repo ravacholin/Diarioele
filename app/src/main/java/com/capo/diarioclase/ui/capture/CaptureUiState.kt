@@ -10,4 +10,20 @@ enum class CaptureStatus { IDLE,RECORDING,PAUSED,REVIEW,PROCESSING,DRAFT,APPROVI
  * lo local mientras la interpretación está en curso.
  */
 data class SemanticRunUi(val state:String,val failure:String?=null,val canContinueLocal:Boolean=false)
-data class CaptureUiState(val status:CaptureStatus=CaptureStatus.IDLE,val sessionId:SessionId?=null,val currentBlockId:BlockId?=null,val currentBlock:Int=0,val totalDurationMs:Long=0,val homeworkMarkers:Int=0,val busy:Boolean=false,val message:String?=null,val lastRecording:RecordingReport?=null,val draft:DiaryDraftEntity?=null,val claims:List<EvidenceClaim> = emptyList(),val diaryId:String?=null,val processedMs:Long=0,val processingTotalMs:Long=0,val progressPercent:Int=0,val progressLabel:String?=null,val transcriptionPaused:Boolean=false,val processingFailure:TranscriptionFailure?=null,val semanticRun:SemanticRunUi?=null)
+/**
+ * Estado compacto y saneado del progreso de interpretación (Fase 6, Q5). No transporta
+ * credenciales, cuerpos ni texto de transcripción: solo paquete, proveedor, intento,
+ * procedencia y tiempos, más las acciones disponibles.
+ */
+data class InterpretationProgressUi(
+    val packet:Int,
+    val totalPackets:Int,
+    val provider:com.capo.diarioclase.processing.semantic.InferenceProvider?,
+    val attempt:Int,
+    val cacheHit:Boolean,
+    val elapsedMs:Long,
+    val provenance:String?,
+    val canRetry:Boolean,
+    val canContinueLocal:Boolean,
+)
+data class CaptureUiState(val status:CaptureStatus=CaptureStatus.IDLE,val sessionId:SessionId?=null,val currentBlockId:BlockId?=null,val currentBlock:Int=0,val totalDurationMs:Long=0,val homeworkMarkers:Int=0,val busy:Boolean=false,val message:String?=null,val lastRecording:RecordingReport?=null,val draft:DiaryDraftEntity?=null,val claims:List<EvidenceClaim> = emptyList(),val diaryId:String?=null,val processedMs:Long=0,val processingTotalMs:Long=0,val progressPercent:Int=0,val progressLabel:String?=null,val transcriptionPaused:Boolean=false,val processingFailure:TranscriptionFailure?=null,val semanticRun:SemanticRunUi?=null,val interpretation:InterpretationProgressUi?=null)

@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.Flow
  @Query("SELECT * FROM audio_segments WHERE id=:id") suspend fun segment(id:String):AudioSegmentEntity?
  @Insert suspend fun insertMarker(x:MarkerEntity)
  @Query("SELECT * FROM markers WHERE blockId=:id ORDER BY offsetMs") suspend fun markers(id:String):List<MarkerEntity>
+ @Query("SELECT * FROM markers WHERE sessionId=:sessionId ORDER BY offsetMs") suspend fun markersForSession(sessionId:String):List<MarkerEntity>
  @Query("SELECT * FROM sessions WHERE id=:id") suspend fun session(id:String):SessionEntity?
  @Query("SELECT * FROM blocks WHERE id=:id") suspend fun block(id:String):BlockEntity?
  @Query("SELECT COUNT(*) FROM blocks WHERE sessionId=:id") suspend fun blockCount(id:String):Int
@@ -85,4 +86,11 @@ import kotlinx.coroutines.flow.Flow
  @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun saveSetting(setting:AppSettingEntity)
  @Query("SELECT COALESCE((SELECT value FROM app_settings WHERE key='interpretation_mode' LIMIT 1),'CONSERVATIVE')") fun observeInterpretationMode():Flow<String>
  @Query("SELECT value FROM app_settings WHERE key='prefer_local_interpretation' LIMIT 1") suspend fun preferLocalInterpretation():String?
+ // Revisión estructurada del docente (Fase 6, Q4).
+ @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun insertRevision(revision:DraftFieldRevisionEntity)
+ @Query("SELECT * FROM draft_field_revisions WHERE claimId=:claimId ORDER BY createdAtEpochMs") suspend fun revisionsForClaim(claimId:String):List<DraftFieldRevisionEntity>
+ @Query("SELECT * FROM draft_field_revisions WHERE sessionId=:sessionId ORDER BY createdAtEpochMs") suspend fun revisionsForSession(sessionId:String):List<DraftFieldRevisionEntity>
+ @Query("SELECT * FROM evidence_claims WHERE id=:id LIMIT 1") suspend fun claimById(id:String):EvidenceClaimEntity?
+ @Query("UPDATE evidence_claims SET active=:active WHERE id=:id") suspend fun setClaimActive(id:String,active:Boolean):Int
+ @Query("UPDATE evidence_claims SET value=:value,normalizedValue=:normalized WHERE id=:id") suspend fun setClaimValue(id:String,value:String,normalized:String):Int
 }
