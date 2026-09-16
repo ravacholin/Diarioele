@@ -9,10 +9,10 @@ android {
     compileSdk = 35
     defaultConfig {
         applicationId = "com.capo.diarioclase.phase2"
-        minSdk = 26
+        minSdk = 29
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.5.2-integrity"
+        versionCode = 10
+        versionName = "0.5.3-opus"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild {
