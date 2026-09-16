@@ -99,9 +99,12 @@ class FreeInferenceRouter(
 
             var requestsUsed = 0
             var goLocal = false
+            // El primer intento es inicial; una respuesta inválida habilita un único reintento
+            // correctivo (Q2) que viaja con contexto de reparación para que el prompt lo refleje.
+            var attemptContext = InferenceAttemptContext.initial()
             while (requestsUsed < retryPolicy.maxRequestsPerProvider) {
                 val startedAt = nowEpochMs()
-                val outcome = client.infer(packet, credential)
+                val outcome = client.infer(packet, credential, attemptContext)
                 val durationMs = nowEpochMs() - startedAt
                 requestsUsed++
 
@@ -153,7 +156,11 @@ class FreeInferenceRouter(
                         if (!waitFitsBudget(wait, deadlineEpochMs)) break
                         onDelay(wait)
                     }
-                    RetryDecision.CORRECT -> Unit // solicitud correctiva inmediata
+                    RetryDecision.CORRECT ->
+                        // Solicitud correctiva inmediata: el segundo intento pide corregir el
+                        // formato. No transporta cuerpo ni transcripción, solo el marcador de
+                        // reintento; los códigos de issue semánticos se cablean en Q3.
+                        attemptContext = InferenceAttemptContext.repair(emptySet())
                     RetryDecision.STOP_PROVIDER -> break
                     RetryDecision.STOP_ALL -> {
                         goLocal = true

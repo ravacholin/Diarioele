@@ -117,6 +117,24 @@ class FreeInferenceRouterTest {
     }
 
     @Test
+    fun `an invalid response triggers a corrective repair attempt`() = runTest {
+        val g = fake(
+            InferenceProvider.GEMINI,
+            FakeInferenceProviderClient.invalidJson(InferenceProvider.GEMINI),
+            FakeInferenceProviderClient.success(InferenceProvider.GEMINI, validJson),
+        )
+        val (r, _) = router(mapOf(InferenceProvider.GEMINI to g))
+
+        val outcome = r.route("s", packet, chain)
+
+        // La respuesta correctiva válida gana; el primer intento es inicial y el segundo, reparación.
+        assertEquals(InferenceProvider.GEMINI, (outcome as RoutedPacketOutcome.Remote).provider)
+        assertEquals(2, g.attempts)
+        assertEquals(listOf(1, 2), g.attemptContexts.map { it.attempt })
+        assertTrue(g.attemptContexts[0].safeIssueCodes.isEmpty())
+    }
+
+    @Test
     fun `a missing credential skips the provider`() = runTest {
         val g = fake(InferenceProvider.GEMINI, FakeInferenceProviderClient.success(InferenceProvider.GEMINI, validJson))
         val gr = fake(InferenceProvider.GROQ, FakeInferenceProviderClient.success(InferenceProvider.GROQ, validJson))

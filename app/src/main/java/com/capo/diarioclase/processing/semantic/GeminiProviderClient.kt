@@ -27,7 +27,7 @@ class GeminiProviderClient(
         credential: EphemeralCredential,
         attempt: InferenceAttemptContext,
     ): ProviderOutcome {
-        val prompt = promptFactory.create(request)
+        val prompt = promptFactory.create(request, attempt)
         val body = buildBody(prompt)
         val headers = mapOf("x-goog-api-key" to credential.value)
 
@@ -67,6 +67,9 @@ class GeminiProviderClient(
             }
             putJsonObject("generationConfig") {
                 put("responseMimeType", "application/json")
+                // Esquema estructurado nativo de Gemini (Q2): el modelo se ciñe al esquema del
+                // contrato en lugar de depender solo del prompt.
+                put("responseJsonSchema", INFERENCE_JSON.parseToJsonElement(prompt.jsonSchema))
                 put("temperature", 0)
             }
         }.toString()

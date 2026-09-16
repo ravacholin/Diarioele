@@ -51,6 +51,25 @@ class GeminiProviderClientTest {
     }
 
     @Test
+    fun `body sends the native json schema and a repair prompt when repairing`() = runTest {
+        val transport = FakeInferenceHttpTransport.ok(200, geminiEnvelope("""{"claims":[]}"""))
+        val client = GeminiProviderClient(transport)
+
+        client.infer(
+            request(),
+            EphemeralCredential("k"),
+            InferenceAttemptContext.repair(setOf(SemanticIssue.NUMERIC_EVIDENCE_MISMATCH)),
+        )
+
+        val body = transport.lastRequest!!.body
+        // Esquema estructurado nativo de Gemini.
+        assertTrue(body.contains("responseJsonSchema"))
+        assertTrue(body.contains("supersedes_claim_keys"))
+        // El prompt de reparación viaja con el código de issue, sin cuerpo privado.
+        assertTrue(body.contains("NUMERIC_EVIDENCE_MISMATCH"))
+    }
+
+    @Test
     fun `maps quota and reads retry after`() = runTest {
         val transport = FakeInferenceHttpTransport.ok(429, "", mapOf("Retry-After" to "2"))
         val outcome = GeminiProviderClient(transport).infer(request(), EphemeralCredential("k"))

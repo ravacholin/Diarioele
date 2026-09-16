@@ -7,6 +7,7 @@ package com.capo.diarioclase.processing.semantic
 class RealProviderConnectionTester(
     private val clients: Map<InferenceProvider, InferenceProviderClient>,
     private val credentials: ProviderCredentialStore,
+    private val openRouterPreflight: OpenRouterBillingPreflight? = null,
 ) : ProviderConnectionTester {
 
     override suspend fun test(provider: InferenceProvider): ConnectionResult {
@@ -14,6 +15,19 @@ class RealProviderConnectionTester(
         val chars = credentials.readCredential(provider) ?: return ConnectionResult.NOT_CONFIGURED
         val credential = EphemeralCredential(String(chars))
         chars.fill(Char(0))
+
+        // OpenRouter: preflight de facturación antes de la prueba de inferencia (Q2). La acción
+        // “Probar conexión” siempre fuerza un refresco. Una clave con capacidad de gasto queda
+        // deshabilitada sin llegar a enviar el paquete de prueba.
+        if (provider == InferenceProvider.OPENROUTER && openRouterPreflight != null) {
+            when (openRouterPreflight.inspect(credential, forceRefresh = true)) {
+                OpenRouterBillingPreflight.Result.SAFE -> Unit
+                OpenRouterBillingPreflight.Result.BILLING_WARNING -> return ConnectionResult.BILLING_WARNING
+                OpenRouterBillingPreflight.Result.INVALID_KEY -> return ConnectionResult.INVALID_KEY
+                OpenRouterBillingPreflight.Result.NO_NETWORK -> return ConnectionResult.NO_NETWORK
+                OpenRouterBillingPreflight.Result.UNAVAILABLE -> return ConnectionResult.UNAVAILABLE
+            }
+        }
 
         val probe = InterpretationRequest(
             packetId = "connection-probe",
