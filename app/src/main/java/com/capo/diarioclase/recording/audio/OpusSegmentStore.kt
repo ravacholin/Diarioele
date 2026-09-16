@@ -1,4 +1,3 @@
- 1 file changed, 1 insertion(+)
 package com.capo.diarioclase.recording.audio
 
 import com.capo.diarioclase.data.db.BlockId
