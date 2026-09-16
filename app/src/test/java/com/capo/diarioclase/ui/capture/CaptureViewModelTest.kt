@@ -32,6 +32,18 @@ class CaptureViewModelTest {
   assertEquals(SessionId("s"),reprojectedId);assertEquals(InterpretationMode.EXHAUSTIVE,reprojectedMode)
   assertEquals("EXHAUSTIVE",vm.state.value.draft!!.mode)
  }
+ @Test fun `semantic run state is exposed and continue local forces local`()=runTest{
+  val report=RecordingReport(SessionId("s"),"2026-09-11",emptyList(),SessionState.EXTRACTING)
+  val progress=MutableStateFlow<TranscriptionProgress?>(TranscriptionProgress(SessionId("s"),60_000,60_000,0,0,0,TranscriptionRunState.PROCESSING,null))
+  val semantic=MutableStateFlow<SemanticRunUi?>(SemanticRunUi("RUNNING",null,canContinueLocal=true))
+  var continuedId:SessionId?=null;var continuedMode:InterpretationMode?=null
+  val actions=object:CaptureActions by UiActions(){override suspend fun continueLocal(id:SessionId,mode:InterpretationMode){continuedId=id;continuedMode=mode}}
+  val vm=CaptureViewModel(UiSessions(null,report),actions,backgroundScope,semanticRuns=semantic,observeProgress={progress});runCurrent()
+  assertEquals("RUNNING",vm.state.value.semanticRun?.state)
+  assertTrue(vm.state.value.semanticRun?.canContinueLocal==true)
+  vm.onContinueLocal(InterpretationMode.CONSERVATIVE);runCurrent()
+  assertEquals(SessionId("s"),continuedId);assertEquals(InterpretationMode.CONSERVATIVE,continuedMode)
+ }
  @Test fun `restart surfaces pending cleanup without retrying it`()=runTest{
   val pending=RecordingReport(SessionId("s"),"2026-09-12",emptyList(),SessionState.CLEANUP_PENDING)
   val entry=DiaryEntry("diary",SessionId("s"),"2026-09-12",null,"Narración","Lectura","12","3","Tarea",1,1,false)

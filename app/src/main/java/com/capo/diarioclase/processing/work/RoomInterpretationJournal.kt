@@ -16,6 +16,18 @@ import com.capo.diarioclase.processing.evidence.InterpretationMode
 import com.capo.diarioclase.processing.semantic.InferenceProvider
 
 /**
+ * Versiones congeladas de una corrida (Task I7b). Se registran para poder reconstruir con qué
+ * app, modelo y contratos se produjo cada ficha. Valores por defecto neutrales para tests.
+ */
+data class InterpretationRunVersions(
+    val appVersion: String = "unknown",
+    val whisperVersion: String = "ggml-base",
+    val promptVersion: String = "free-ele-v1",
+    val schemaVersion: String = "claims-v1",
+    val validatorVersion: String = "v1",
+)
+
+/**
  * Datos de apertura de una corrida. Reúne la identidad y las versiones congeladas sobre las
  * que se infirió, más el hash del transcripto. Nunca transporta texto de proveedor.
  */

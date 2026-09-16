@@ -22,6 +22,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.capo.diarioclase.ui.archive.*
 import com.capo.diarioclase.ui.capture.*
+import kotlinx.coroutines.flow.map
 
 sealed interface AppScreen {
     data object Capture : AppScreen
@@ -50,6 +51,9 @@ class MainActivity : ComponentActivity() {
                     app.repository, AndroidCaptureActions(app, app),
                     drafts = app.processingStore.observeLatestDraft(), claims = app.processingStore.observeLatestClaims(),
                     diaries = app.diaryRepository.observeEntries(""),
+                    semanticRuns = app.processingStore.observeLatestInterpretationRun().map { run ->
+                        run?.let { SemanticRunUi(it.state, it.failure, canContinueLocal = it.state == "RUNNING") }
+                    },
                     observeProgress = { app.transcriptionScheduler.observeProgress(it) },
                 ) as T
                 ArchiveViewModel::class.java -> ArchiveViewModel(app.diaryRepository) as T
@@ -99,6 +103,7 @@ class MainActivity : ComponentActivity() {
                                         captureState, capture::onStart, capture::onPause, capture::onResume,
                                         capture::onMarkHomework, capture::onFinalize, capture::onProcess,
                                         capture::onMode, capture::onPauseProcessing, capture::onResumeProcessing,
+                                        capture::onContinueLocal,
                                         capture::onSaveDraft, capture::onApprove, capture::onRetryCleanup,
                                         interpretationMode = archiveState.mode,
                                     )

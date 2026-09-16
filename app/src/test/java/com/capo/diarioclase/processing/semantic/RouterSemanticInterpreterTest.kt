@@ -7,7 +7,13 @@ import com.capo.diarioclase.processing.evidence.ClaimOrigin
 import com.capo.diarioclase.processing.transcription.TranscriptSpan
 import com.capo.diarioclase.processing.work.InterpretationBudget
 import com.capo.diarioclase.processing.work.InterpretationFailure
+import com.capo.diarioclase.processing.work.InterpretationJournal
 import com.capo.diarioclase.processing.work.InterpretationOutcome
+import com.capo.diarioclase.processing.work.InterpretationPacketState
+import com.capo.diarioclase.processing.work.InterpretationRunRecord
+import com.capo.diarioclase.processing.work.InterpretationRunState
+import com.capo.diarioclase.processing.work.PersistedClaim
+import com.capo.diarioclase.processing.work.ProviderAttemptRecord
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -111,6 +117,58 @@ class RouterSemanticInterpreterTest {
         assertTrue(outcome.claims.any { it.category == ClaimCategory.PAGE && it.value == "42" })
         assertTrue(outcome.claims.all { it.origin == ClaimOrigin.LOCAL_RULE })
         assertTrue(testScheduler.currentTime <= 120_000)
+    }
+
+    private class RecordingJournal : InterpretationJournal {
+        var begun: InterpretationRunRecord? = null
+        var completedState: InterpretationRunState? = null
+        val packets = mutableListOf<String>()
+        val completedPackets = mutableListOf<InterpretationPacketState>()
+        val attempts = mutableListOf<ProviderAttemptRecord>()
+        override suspend fun beginRun(run: InterpretationRunRecord) { begun = run }
+        override suspend fun startPacket(runId: String, packetId: String, ordinal: Int, requestHash: String, requestBytes: Int) { packets += packetId }
+        override suspend fun recordAttempt(attempt: ProviderAttemptRecord) { attempts += attempt }
+        override suspend fun completePacket(runId: String, packetId: String, state: InterpretationPacketState, provider: InferenceProvider?) { completedPackets += state }
+        override suspend fun failRun(runId: String, failure: InterpretationFailure) {}
+        override suspend fun completeRun(runId: String, state: InterpretationRunState) { completedState = state }
+        override suspend fun saveClaims(claims: List<PersistedClaim>) {}
+        override suspend fun loadClaims(runId: String): List<PersistedClaim> = emptyList()
+    }
+
+    @Test
+    fun `records run packets and attempts in the journal`() = runTest {
+        val journal = RecordingJournal()
+        val gemini = FakeInferenceProviderClient(
+            InferenceProvider.GEMINI,
+            FakeInferenceProviderClient.success(InferenceProvider.GEMINI, validJson),
+        )
+        val interp = RouterSemanticInterpreter(
+            packetBuilder = InterpretationPacketBuilder(),
+            router = FreeInferenceRouter(
+                clients = mapOf(InferenceProvider.GEMINI to gemini),
+                validator = SemanticResponseValidator(),
+                fallback = FallbackClaimExtractor(),
+                retryPolicy = ProviderRetryPolicy(retryDelayMs = 0),
+                cache = null,
+                credentialFor = { EphemeralCredential("k") },
+                onDelay = {},
+                nowEpochMs = { 5 },
+            ),
+            reducer = SemanticClaimReducer(),
+            fallback = FallbackClaimExtractor(),
+            enabledProviders = { listOf(ProviderModel(InferenceProvider.GEMINI, "gemini-3-flash-preview")) },
+            runIdFactory = { "run-1" },
+            journal = journal,
+            nowEpochMs = { 5 },
+        )
+
+        interp.interpret(SessionId("s"), spans, InterpretationBudget(60_000, 120_000))
+
+        assertEquals("run-1", journal.begun?.id)
+        assertEquals(InterpretationRunState.REMOTE_OK, journal.completedState)
+        assertEquals(1, journal.packets.size)
+        assertEquals(listOf(InterpretationPacketState.REMOTE_OK), journal.completedPackets)
+        assertTrue(journal.attempts.any { it.outcome == "REMOTE_OK" && it.provider == InferenceProvider.GEMINI })
     }
 
     @Test

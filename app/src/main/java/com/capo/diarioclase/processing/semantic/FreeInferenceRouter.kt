@@ -3,6 +3,20 @@ package com.capo.diarioclase.processing.semantic
 import com.capo.diarioclase.processing.evidence.RawClaim
 import kotlinx.coroutines.delay
 
+/**
+ * Telemetría tipada de un intento contra un proveedor (Task I7b). No transporta cuerpos HTTP
+ * ni credenciales: solo el resultado, el modelo, si fue acierto de caché y la duración.
+ */
+data class ProviderAttemptInfo(
+    val provider: InferenceProvider,
+    val modelId: String,
+    val attempt: Int,
+    val cacheHit: Boolean,
+    val outcome: String,
+    val durationMs: Long,
+    val startedAtEpochMs: Long,
+)
+
 /** Resultado de rutear un paquete: remoto validado, o fallback local. */
 sealed interface RoutedPacketOutcome {
     data class Remote(
@@ -52,10 +66,14 @@ class FreeInferenceRouter(
         sourceSpanIds: Map<String, String> = emptyMap(),
         deadlineEpochMs: Long? = null,
         transientStrikes: MutableMap<InferenceProvider, Int> = mutableMapOf(),
+        onAttempt: (suspend (ProviderAttemptInfo) -> Unit)? = null,
     ): RoutedPacketOutcome {
         cache?.find(sessionId, packet, providers)?.let { hit ->
             val cached = validator.validate(hit.validatedJson, hit.provider, packet.spans)
             if (cached is ValidationOutcome.Valid) {
+                onAttempt?.invoke(
+                    ProviderAttemptInfo(hit.provider, hit.modelId, 0, cacheHit = true, outcome = "REMOTE_OK", durationMs = 0, startedAtEpochMs = nowEpochMs()),
+                )
                 return RoutedPacketOutcome.Remote(
                     identify(cached.claims, runId, packet.packetId, hit.provider, sourceSpanIds),
                     hit.provider,
@@ -82,7 +100,9 @@ class FreeInferenceRouter(
             var requestsUsed = 0
             var goLocal = false
             while (requestsUsed < retryPolicy.maxRequestsPerProvider) {
+                val startedAt = nowEpochMs()
                 val outcome = client.infer(packet, credential)
+                val durationMs = nowEpochMs() - startedAt
                 requestsUsed++
 
                 val failure: ProviderOutcome.Failure?
@@ -92,6 +112,9 @@ class FreeInferenceRouter(
                         if (validation is ValidationOutcome.Valid) {
                             cache?.store(sessionId, packet, provider, modelId, outcome.rawJson, nowEpochMs())
                             transientStrikes[provider] = 0
+                            onAttempt?.invoke(
+                                ProviderAttemptInfo(provider, modelId, requestsUsed, cacheHit = false, outcome = "REMOTE_OK", durationMs = durationMs, startedAtEpochMs = startedAt),
+                            )
                             return RoutedPacketOutcome.Remote(
                                 identify(validation.claims, runId, packet.packetId, provider, sourceSpanIds),
                                 provider,
@@ -108,6 +131,9 @@ class FreeInferenceRouter(
                     }
                 }
 
+                onAttempt?.invoke(
+                    ProviderAttemptInfo(provider, modelId, requestsUsed, cacheHit = false, outcome = code.name, durationMs = durationMs, startedAtEpochMs = startedAt),
+                )
                 failures += code
                 if (retryPolicy.opensCircuit(code)) disabledProviders += provider
                 if (isTransient(code)) {
