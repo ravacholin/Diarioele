@@ -1,8 +1,8 @@
 package com.capo.diarioclase.processing.semantic
 
 import com.capo.diarioclase.data.db.SessionId
+import com.capo.diarioclase.processing.evidence.EvidenceClaim
 import com.capo.diarioclase.processing.evidence.InterpretationMode
-import com.capo.diarioclase.processing.evidence.RawClaim
 import com.capo.diarioclase.processing.transcription.TranscriptSpan
 import com.capo.diarioclase.processing.work.InterpretationBudget
 import com.capo.diarioclase.processing.work.InterpretationFailure
@@ -42,6 +42,7 @@ class RouterSemanticInterpreter(
     private val reducer: SemanticClaimReducer,
     private val fallback: FallbackClaimExtractor,
     private val enabledProviders: suspend () -> List<ProviderModel>,
+    private val merger: HybridClaimMerger = HybridClaimMerger(),
     private val runIdFactory: () -> String = { UUID.randomUUID().toString() },
     private val journal: InterpretationJournal? = null,
     private val versions: InterpretationRunVersions = InterpretationRunVersions(),
@@ -52,6 +53,7 @@ class RouterSemanticInterpreter(
         sessionId: SessionId,
         spans: List<TranscriptSpan>,
         budget: InterpretationBudget,
+        signals: LocalInterpretationSignals,
     ): InterpretationOutcome {
         val packets = packetBuilder.build(spans)
         if (packets.isEmpty()) return InterpretationOutcome.Remote(emptyList())
@@ -67,7 +69,7 @@ class RouterSemanticInterpreter(
         val runId = runIdFactory()
         val disabled = mutableSetOf<InferenceProvider>()
         val strikes = mutableMapOf<InferenceProvider, Int>()
-        val raw = mutableListOf<RawClaim>()
+        val merged = mutableListOf<EvidenceClaim>()
         val processed = BooleanArray(packets.size)
         var anyLocal = false
         var anyRemote = false
@@ -88,10 +90,12 @@ class RouterSemanticInterpreter(
                         requestBytes = packet.request.spans.sumOf { it.text.toByteArray(Charsets.UTF_8).size },
                     )
                 }
+                // Los candidatos locales se calculan siempre y se fusionan con lo remoto (Q3).
+                val local = fallback.extract(packet.request.spans, signals)
                 var errored = false
-                val outcome = try {
+                val remote = try {
                     withTimeoutOrNull(budget.packetMs) {
-                        router.route(
+                        router.routeRemote(
                             sessionId = sessionId.value,
                             packet = packet.request,
                             providers = providers,
@@ -125,20 +129,20 @@ class RouterSemanticInterpreter(
                     errored = true
                     null
                 }
-                when (outcome) {
-                    is RoutedPacketOutcome.Remote -> {
-                        raw += outcome.claims
+                when {
+                    remote != null && remote.provider != null -> {
+                        merged += merger.merge(local, remote.claims)
                         anyRemote = true
-                        journaled { journal?.completePacket(runId, packet.request.packetId, InterpretationPacketState.REMOTE_OK, outcome.provider) }
+                        journaled { journal?.completePacket(runId, packet.request.packetId, InterpretationPacketState.REMOTE_OK, remote.provider) }
                     }
-                    is RoutedPacketOutcome.Local -> {
-                        raw += outcome.claims
+                    remote != null -> {
+                        merged += merger.merge(local, emptyList())
                         anyLocal = true
-                        failure = failure ?: outcome.failures.toInterpretationFailure()
+                        failure = failure ?: remote.failures.toInterpretationFailure()
                         journaled { journal?.completePacket(runId, packet.request.packetId, InterpretationPacketState.LOCAL_OK, null) }
                     }
-                    null -> {
-                        raw += fallback.extract(packet.request.spans)
+                    else -> {
+                        merged += merger.merge(local, emptyList())
                         anyLocal = true
                         failure = failure
                             ?: if (errored) InterpretationFailure.INTERNAL else InterpretationFailure.DEADLINE
@@ -154,11 +158,13 @@ class RouterSemanticInterpreter(
             anyLocal = true
             failure = failure ?: InterpretationFailure.DEADLINE
             packets.forEachIndexed { index, packet ->
-                if (!processed[index]) raw += fallback.extract(packet.request.spans)
+                if (!processed[index]) {
+                    merged += merger.merge(fallback.extract(packet.request.spans, signals), emptyList())
+                }
             }
         }
 
-        val claims = reducer.reduce(raw)
+        val claims = reducer.reduceMerged(merged)
         val runState = when {
             !anyLocal -> InterpretationRunState.REMOTE_OK
             anyRemote -> InterpretationRunState.MIXED_OK

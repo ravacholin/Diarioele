@@ -57,6 +57,17 @@ class RouterSemanticInterpreterTest {
     }
 
     @Test
+    fun `manual markers surface as local homework candidates`() = runTest {
+        val signals = LocalInterpretationSignals(
+            markers = listOf(ManualMarkerSignal(markerId = "m1", type = "HOMEWORK", blockId = "blk", offsetMs = 2_500)),
+        )
+        val claims = interpreter().interpret(SessionId("s"), spans, InterpretationBudget(), signals).claims
+        assertTrue(
+            claims.any { it.category == ClaimCategory.HOMEWORK && it.provenance == ClaimProvenance.LOCAL && it.active },
+        )
+    }
+
+    @Test
     fun `a valid gemini response yields remote claims`() = runTest {
         val validJson = ProviderClaimsCodec.encode(
             listOf(ProviderSemanticClaim("B1-C1", "PAGE", "42", "42", "PERFORMED", 0.95, listOf("B1-S1"), emptyList())),

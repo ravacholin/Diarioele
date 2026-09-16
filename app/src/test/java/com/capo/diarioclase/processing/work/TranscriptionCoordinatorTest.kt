@@ -89,6 +89,7 @@ class TranscriptionCoordinatorTest {
                 sessionId: SessionId,
                 spans: List<TranscriptSpan>,
                 budget: InterpretationBudget,
+                signals: com.capo.diarioclase.processing.semantic.LocalInterpretationSignals,
             ) = InterpretationOutcome.Remote(
                 listOf(
                     EvidenceClaim(
