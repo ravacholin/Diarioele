@@ -45,8 +45,8 @@ import com.capo.diarioclase.processing.work.DaoTranscriptionRunCommands
 import com.capo.diarioclase.processing.work.TranscriptionWorkScheduler
 import com.capo.diarioclase.processing.work.WorkManagerEnqueuer
 import com.capo.diarioclase.recording.audio.CleanupFileStore
-import com.capo.diarioclase.recording.audio.FileSegmentStore
-import com.capo.diarioclase.recording.audio.PersistingSegmentStore
+import com.capo.diarioclase.recording.audio.RecordingComponentFactory
+import com.capo.diarioclase.recording.audio.SegmentStore
 import com.capo.diarioclase.recording.recovery.RecordingRecovery
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
@@ -68,6 +68,8 @@ class DiarioClaseApp : Application() {
         )
     }
     lateinit var whisperEngine: WhisperTranscriptionEngine
+    lateinit var recordingComponents: RecordingComponentFactory
+    lateinit var recordingSegments: SegmentStore
     lateinit var cleanupFiles: CleanupFileStore
     lateinit var cleanupCoordinator: CleanupCoordinator
     lateinit var providerSettings: ProviderSettingsStore
@@ -89,21 +91,20 @@ class DiarioClaseApp : Application() {
             .build()
         repository = RoomSessionRepository(database, SystemClock)
         diaryRepository = RoomDiaryRepository(database, SystemClock)
-        val rawSegments = FileSegmentStore(File(filesDir, "temporary_audio"))
-        cleanupFiles = rawSegments
+        recordingComponents = RecordingComponentFactory(File(filesDir, "temporary_audio"))
+        cleanupFiles = recordingComponents.cleanupFiles
+        recordingSegments = recordingComponents.persistedSegments(
+            RoomSegmentMetadataStore(database.sessions()),
+        )
         cleanupCoordinator = CleanupCoordinator(
             diaryRepository,
             cleanupFiles,
             RoomTemporaryCleanupStore(database.sessions()),
             SystemClock,
         )
-        val segments = PersistingSegmentStore(
-            rawSegments,
-            RoomSegmentMetadataStore(database.sessions()),
-        )
         recovery = RecordingRecovery(
             repository,
-            segments,
+            recordingSegments,
             RoomMarkerStore(database.sessions()),
         )
         processingStore = RoomProcessingStore(database, SystemClock)
@@ -156,7 +157,12 @@ class DiarioClaseApp : Application() {
                 }.getOrNull() ?: "unknown",
             ),
         )
-        transcriptionCoordinator = TranscriptionCoordinator(processingStore, whisperEngine, interpreter = interpreter)
+        transcriptionCoordinator = TranscriptionCoordinator(
+            processingStore,
+            whisperEngine,
+            pcmReader = recordingComponents.windowReader::read,
+            interpreter = interpreter,
+        )
         providerSettingsController = ProviderSettingsController(
             settings = providerSettings,
             credentials = providerCredentials,
