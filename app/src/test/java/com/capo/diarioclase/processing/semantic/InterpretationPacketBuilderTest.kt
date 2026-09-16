@@ -17,7 +17,7 @@ class InterpretationPacketBuilderTest {
 
     @Test
     fun `orders spans by block and time and assigns public ids`() {
-        // Entrada desordenada en el tiempo y con dos bloques entremezclados.
+        // Entrada desordenada dentro de un segmento y con dos bloques entremezclados.
         val spans = listOf(
             transcriptSpan(block = "blk-A", segment = "seg-1", start = 3_000, text = "tercero"),
             transcriptSpan(block = "blk-A", segment = "seg-1", start = 1_000, text = "primero"),
@@ -28,13 +28,14 @@ class InterpretationPacketBuilderTest {
         val packets = InterpretationPacketBuilder().build(spans)
 
         // Bloque A (primera aparición) es B1; bloque B es B2, en orden de aparición.
-        val blockA = packets.first { it.spans.any { s -> s.blockOrdinal == 1 } }
-        val ordered = blockA.spans.filterNot { it.contextOnly }
-        assertEquals(listOf("primero", "segundo", "tercero"), ordered.map { it.text })
+        val blockA = packets.first { it.request.spans.any { s -> s.blockOrdinal == 1 } }
+        val ordered = blockA.request.spans.filterNot { it.contextOnly }
+        // Se ordena seg-1 internamente y luego se conserva seg-2, aunque su reloj sea menor.
+        assertEquals(listOf("primero", "tercero", "segundo"), ordered.map { it.text })
         assertEquals(listOf("B1-S1", "B1-S2", "B1-S3"), ordered.map { it.publicId })
 
-        val blockB = packets.first { it.spans.any { s -> s.blockOrdinal == 2 } }
-        assertEquals(listOf("B2-S1"), blockB.spans.filterNot { it.contextOnly }.map { it.publicId })
+        val blockB = packets.first { it.request.spans.any { s -> s.blockOrdinal == 2 } }
+        assertEquals(listOf("B2-S1"), blockB.request.spans.filterNot { it.contextOnly }.map { it.publicId })
     }
 
     @Test
@@ -48,7 +49,7 @@ class InterpretationPacketBuilderTest {
 
         val packets = InterpretationPacketBuilder().build(spans)
 
-        packets.flatMap { it.spans }.forEach { span ->
+        packets.flatMap { it.request.spans }.forEach { span ->
             assertTrue("id no artificial: ${span.publicId}", PublicSpanId.isValid(span.publicId))
             assertNotEquals(rawBlock, span.publicId)
             assertNotEquals(rawSegment, span.publicId)
@@ -66,8 +67,8 @@ class InterpretationPacketBuilderTest {
         val packets = builder.build(spans)
 
         assertEquals(2, packets.size)
-        assertEquals(4, packets[0].spans.count { !it.contextOnly })
-        assertEquals(1, packets[1].spans.count { !it.contextOnly })
+        assertEquals(4, packets[0].request.spans.count { !it.contextOnly })
+        assertEquals(1, packets[1].request.spans.count { !it.contextOnly })
     }
 
     @Test
@@ -86,9 +87,9 @@ class InterpretationPacketBuilderTest {
 
         assertEquals(2, packets.size)
         // El corte cae en la pausa: el primer paquete termina en el span anterior a la pausa.
-        val firstMain = packets[0].spans.filterNot { it.contextOnly }
+        val firstMain = packets[0].request.spans.filterNot { it.contextOnly }
         assertEquals(listOf("aaaaa"), firstMain.map { it.text })
-        val secondMain = packets[1].spans.filterNot { it.contextOnly }
+        val secondMain = packets[1].request.spans.filterNot { it.contextOnly }
         assertEquals(listOf("bbbbb", "ccccc", "ddddd", "eeeee"), secondMain.map { it.text })
     }
 
@@ -102,9 +103,9 @@ class InterpretationPacketBuilderTest {
         val packets = builder.build(spans)
 
         // El primer paquete no lleva contexto.
-        assertTrue(packets[0].spans.none { it.contextOnly })
+        assertTrue(packets[0].request.spans.none { it.contextOnly })
         // El segundo repite los dos últimos spans del primero como contextOnly.
-        val context = packets[1].spans.filter { it.contextOnly }
+        val context = packets[1].request.spans.filter { it.contextOnly }
         assertEquals(2, context.size)
         assertEquals(listOf("B1-S3", "B1-S4"), context.map { it.publicId })
         assertTrue(context.all { it.contextOnly })
@@ -120,10 +121,10 @@ class InterpretationPacketBuilderTest {
         val first = InterpretationPacketBuilder().build(spans)
         val second = InterpretationPacketBuilder().build(spans)
 
-        assertEquals(first.map { it.packetId }, second.map { it.packetId })
+        assertEquals(first.map { it.request.packetId }, second.map { it.request.packetId })
         first.forEach { packet ->
-            assertEquals(64, packet.packetId.length)
-            assertTrue(packet.packetId.all { it in "0123456789abcdef" })
+            assertEquals(64, packet.request.packetId.length)
+            assertTrue(packet.request.packetId.all { it in "0123456789abcdef" })
         }
 
         // Cambiar el texto cambia el packetId.
@@ -133,15 +134,48 @@ class InterpretationPacketBuilderTest {
                 transcriptSpan(block = "b", segment = "s", start = 1_000, end = 2_000, text = "planeta"),
             ),
         )
-        assertNotEquals(first.single().packetId, altered.single().packetId)
+        assertNotEquals(first.single().request.packetId, altered.single().request.packetId)
     }
 
     @Test
     fun `packet carries the frozen prompt and schema versions`() {
         val spans = listOf(transcriptSpan(block = "b", segment = "s", start = 0, end = 1_000, text = "hola"))
         val packet = InterpretationPacketBuilder().build(spans).single()
-        assertEquals("free-ele-v1", packet.promptVersion)
-        assertEquals("claims-v1", packet.schemaVersion)
+        assertEquals("free-ele-v1", packet.request.promptVersion)
+        assertEquals("claims-v1", packet.request.schemaVersion)
+    }
+
+    @Test
+    fun `segment clock reset does not interleave segments`() {
+        val spans = listOf(
+            transcriptSpan(block = "b", segment = "A", start = 8_000, text = "página veinte"),
+            transcriptSpan(block = "b", segment = "A", start = 9_000, text = "ejercicio dos"),
+            transcriptSpan(block = "b", segment = "B", start = 0, text = "no, el tres"),
+        )
+
+        val result = InterpretationPacketBuilder().build(spans)
+            .flatMap { it.request.spans }
+            .filterNot { it.contextOnly }
+            .map { it.text }
+
+        assertEquals(listOf("página veinte", "ejercicio dos", "no, el tres"), result)
+    }
+
+    @Test
+    fun `every public id maps back to its local transcript span`() {
+        val spans = listOf(
+            transcriptSpan(block = "b", segment = "A", start = 0, text = "uno"),
+            transcriptSpan(block = "b", segment = "A", start = 1_000, text = "dos"),
+        )
+
+        val packets = InterpretationPacketBuilder().build(spans)
+
+        packets.forEach { packet ->
+            packet.request.spans.forEach { publicSpan ->
+                val sourceId = packet.sourceSpanIds.getValue(publicSpan.publicId)
+                assertTrue(sourceId in spans.map { it.id })
+            }
+        }
     }
 
     private fun transcriptSpan(

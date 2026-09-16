@@ -183,4 +183,63 @@ class FreeInferenceRouterTest {
         assertTrue(outcome is RoutedPacketOutcome.Local)
         assertEquals(0, gr.attempts) // NO_NETWORK no intenta proveedores posteriores
     }
+
+    @Test
+    fun `two consecutive transient failures open the provider circuit`() = runTest {
+        val g = fake(
+            InferenceProvider.GEMINI,
+            FakeInferenceProviderClient.serverUnavailable(InferenceProvider.GEMINI),
+            FakeInferenceProviderClient.serverUnavailable(InferenceProvider.GEMINI),
+        )
+        val gr = fake(InferenceProvider.GROQ, FakeInferenceProviderClient.success(InferenceProvider.GROQ, validJson))
+        val (r, _) = router(mapOf(InferenceProvider.GEMINI to g, InferenceProvider.GROQ to gr))
+        val disabled = mutableSetOf<InferenceProvider>()
+        val strikes = mutableMapOf<InferenceProvider, Int>()
+
+        val first = r.route("s", packet, chain, disabled, transientStrikes = strikes)
+        val second = r.route("s", packet, chain, disabled, transientStrikes = strikes)
+
+        assertEquals(InferenceProvider.GROQ, (first as RoutedPacketOutcome.Remote).provider)
+        assertEquals(InferenceProvider.GROQ, (second as RoutedPacketOutcome.Remote).provider)
+        assertTrue(InferenceProvider.GEMINI in disabled)
+        assertEquals(2, g.attempts) // dos strikes en la primera ruta; luego queda deshabilitado
+    }
+
+    @Test
+    fun `a retry-after that exceeds the remaining budget skips the retry`() = runTest {
+        val g = fake(
+            InferenceProvider.GEMINI,
+            ProviderOutcome.Failure(
+                InferenceProvider.GEMINI,
+                ProviderFailure.SERVER_UNAVAILABLE,
+                retryable = true,
+                retryAfterMs = 100_000L,
+            ),
+        )
+        val gr = fake(InferenceProvider.GROQ, FakeInferenceProviderClient.success(InferenceProvider.GROQ, validJson))
+        val (r, _) = router(mapOf(InferenceProvider.GEMINI to g, InferenceProvider.GROQ to gr))
+
+        // nowEpochMs = 1; el retry-after (100 s) no entra antes del deadline (50 ms).
+        val outcome = r.route("s", packet, chain, deadlineEpochMs = 50)
+
+        assertEquals(InferenceProvider.GROQ, (outcome as RoutedPacketOutcome.Remote).provider)
+        assertEquals(1, g.attempts) // no reintenta porque la espera no entra en el presupuesto
+    }
+
+    @Test
+    fun `identity wiring assigns a global id and resolves transcript span ids`() = runTest {
+        val g = fake(InferenceProvider.GEMINI, FakeInferenceProviderClient.success(InferenceProvider.GEMINI, validJson))
+        val (r, _) = router(mapOf(InferenceProvider.GEMINI to g))
+        val sources = mapOf("B1-S1" to "transcript-span-1")
+
+        val outcome = r.route("s", packet, chain, runId = "run-1", sourceSpanIds = sources)
+
+        val claim = (outcome as RoutedPacketOutcome.Remote).claims.single()
+        assertEquals(ClaimIdentity.id("run-1", packet.packetId, InferenceProvider.GEMINI, "B1-C1"), claim.id)
+        assertEquals(claim.id, claim.claimKey)
+        assertEquals("B1-C1", claim.providerClaimKey)
+        assertEquals("run-1", claim.runId)
+        assertEquals(packet.packetId, claim.packetId)
+        assertEquals(listOf("transcript-span-1"), claim.transcriptSpanIds)
+    }
 }

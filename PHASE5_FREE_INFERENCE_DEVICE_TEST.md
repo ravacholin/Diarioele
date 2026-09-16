@@ -1,6 +1,6 @@
 # Prueba física — Fase 5 (router de inferencia gratuito)
 
-APK: `0.5.0-free-router` (versionCode 7). Dispositivo de aceptación: Moto g max.
+APK: `0.5.2-integrity` (versionCode 9). Dispositivo de aceptación: Moto g max.
 
 Una compilación verde no prueba el comportamiento real en el teléfono. Esta prueba la
 completa el usuario, gradualmente. Conservar el audio ante cualquier fallo; no aprobar una
@@ -8,7 +8,7 @@ ficha durante una prueba de fallo (aprobar elimina los temporales).
 
 ## Preparación
 
-1. Instalar el APK `0.5.0-free-router`. Si la firma debug impide actualizar sobre una
+1. Instalar el APK `0.5.2-integrity`. Si la firma debug impide actualizar sobre una
    versión previa, desinstalar la anterior (borra sus datos locales).
 2. Confirmar que el APK **no** cambió su naturaleza offline por defecto: sin proveedores
    configurados, la interpretación es 100% local.
@@ -36,15 +36,38 @@ ficha durante una prueba de fallo (aprobar elimina los temporales).
 7. **Groq / OpenRouter.** Configurar cada uno igual que Gemini y repetir el caso 1 para
    confirmar que responden como proveedores.
 
+## Casos de integridad 0.5.2
+
+Verificar en el Moto g max los invariantes de la entrega `0.5.2-integrity`:
+
+8. **Cronología con relojes reiniciados.** Grabar dos bloques (dos audios); el segundo empieza
+   con el reloj en cero. La ficha debe respetar el orden de los bloques, sin intercalar el
+   segundo antes del primero.
+9. **Tarea asignada va a Tarea.** Decir un ejercicio "hecho" y otro "queda para casa": el
+   primero aparece en clase (páginas/ejercicios) y el segundo **solo** en Tarea.
+10. **Cambio de modo sin red (reproyección local).** Con modo avión, cambiar
+    CONSERVADOR/EQUILIBRADO/EXHAUSTIVO sobre una ficha ya procesada: cambia lo mostrado **sin**
+    ninguna llamada de red y conservando las ediciones del docente.
+11. **Reapertura con evidencia.** Cerrar y reabrir la app tras procesar (antes de aprobar): la
+    ficha y su evidencia (incluidas evidencias múltiples y correcciones) se reconstruyen desde
+    la base, sin re-consultar al proveedor.
+12. **Timeout semántico no rompe el audio.** Si la interpretación remota no responde a tiempo,
+    la ficha cae a local y el audio/segmentos siguen `TRANSCRITO` (nunca `FALLIDO`).
+13. **Panel de estado y "Continuar local".** Durante el proceso, el panel muestra el estado de
+    la corrida semántica; **CONTINUAR LOCAL** deja de esperar a lo remoto y arma la ficha local.
+14. **Pausa y kill/restart.** Pausar el procesamiento y matar/reabrir la app: se retoma sin
+    perder audio ni datos temporales.
+
+No aprobar/borrar la sesión hasta haber verificado la persistencia de evidencia (caso 11).
+
 ## Pendiente de una versión debug con inyección de fallos
 
 Los casos de **encadenamiento simulado** (Gemini 429 → Groq; Gemini + Groq 429 →
 OpenRouter; todos fallan → local con ficha mixta) requieren un hook de fallos simulados
 disponible solo en debug, que **todavía no está implementado**. Con el encadenamiento real
 solo se puede forzar el fallback quitando la red (caso 2) o con una clave inválida (caso 6).
-Este hook y un panel de estado de ejecución con la procedencia `GEMINI/GROQ/OPENROUTER/
-MIXTO/LOCAL` y los botones `REINTENTAR INFERENCIA` / `CONTINUAR CON FICHA LOCAL` quedan como
-mejora acotada para una próxima iteración.
+El panel de estado de ejecución y el botón `CONTINUAR LOCAL` ya están disponibles (I7b); el
+hook de inyección de fallos en debug queda como mejora acotada para una próxima iteración.
 
 ## Registro de la prueba
 

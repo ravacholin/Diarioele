@@ -11,8 +11,8 @@ android {
         applicationId = "com.capo.diarioclase.phase2"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "0.5.1-free-router"
+        versionCode = 9
+        versionName = "0.5.2-integrity"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild {
@@ -39,6 +39,10 @@ android {
             version = "3.22.1"
         }
     }
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 val prepareWhisperModel by tasks.registering(Exec::class) {

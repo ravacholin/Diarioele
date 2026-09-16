@@ -43,6 +43,10 @@ class SemanticResponseValidatorTest {
         // La evidencia proviene del span local, no de texto del modelo.
         assertEquals("Página cuarenta y dos.", claim.evidence.excerpt)
         assertEquals(1, claim.evidences.size)
+        assertEquals(1, claim.evidence.blockOrdinal)
+        assertEquals(1, claim.evidence.audioSegmentOrdinal)
+        assertEquals(1, claim.evidence.spanOrdinal)
+        assertEquals(false, claim.evidence.contextual)
     }
 
     @Test

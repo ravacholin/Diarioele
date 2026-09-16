@@ -37,6 +37,8 @@ import com.capo.diarioclase.processing.semantic.SemanticResponseValidator
 import com.capo.diarioclase.processing.transcription.WhisperModelInstaller
 import com.capo.diarioclase.processing.transcription.WhisperNativeBridge
 import com.capo.diarioclase.processing.transcription.WhisperTranscriptionEngine
+import com.capo.diarioclase.processing.work.InterpretationRunVersions
+import com.capo.diarioclase.processing.work.RoomInterpretationJournal
 import com.capo.diarioclase.processing.work.RoomProcessingStore
 import com.capo.diarioclase.processing.work.TranscriptionCoordinator
 import com.capo.diarioclase.processing.work.DaoTranscriptionRunCommands
@@ -82,6 +84,7 @@ class DiarioClaseApp : Application() {
                 DiarioDatabase.MIGRATION_2_3,
                 DiarioDatabase.MIGRATION_3_4,
                 DiarioDatabase.MIGRATION_4_5,
+                DiarioDatabase.MIGRATION_5_6,
             )
             .build()
         repository = RoomSessionRepository(database, SystemClock)
@@ -136,9 +139,22 @@ class DiarioClaseApp : Application() {
             packetBuilder = InterpretationPacketBuilder(),
             router = router,
             reducer = SemanticClaimReducer(),
+            fallback = FallbackClaimExtractor(),
             enabledProviders = {
-                settings.enabledProfilesInOrder().map { ProviderModel(it.provider, it.modelId) }
+                // "Continuar local" (Task I7b) fuerza la interpretación local para la próxima
+                // corrida: si la bandera está activa, no se ofrece ningún proveedor remoto.
+                if (database.sessions().preferLocalInterpretation() == "true") {
+                    emptyList()
+                } else {
+                    settings.enabledProfilesInOrder().map { ProviderModel(it.provider, it.modelId) }
+                }
             },
+            journal = RoomInterpretationJournal(database, SystemClock),
+            versions = InterpretationRunVersions(
+                appVersion = runCatching {
+                    packageManager.getPackageInfo(packageName, 0).versionName
+                }.getOrNull() ?: "unknown",
+            ),
         )
         transcriptionCoordinator = TranscriptionCoordinator(processingStore, whisperEngine, interpreter = interpreter)
         providerSettingsController = ProviderSettingsController(

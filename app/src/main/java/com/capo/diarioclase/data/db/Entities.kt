@@ -123,6 +123,14 @@ data class EvidenceClaimEntity(
     val endMs: Long,
     val excerpt: String,
     val active: Boolean,
+    // Identidad y calidad namespaced de Fase 5.2 (aditivas, con default para no romper
+    // filas v5 ya existentes ni las llamadas posicionales del store local).
+    val runId: String? = null,
+    val packetId: String? = null,
+    val providerClaimKey: String = "",
+    val declaredConfidence: Double = 0.0,
+    val effectiveConfidence: Double = 0.0,
+    val claimOrdinal: Int = 0,
 )
 
 @Entity(
@@ -236,4 +244,86 @@ data class InterpretationCacheEntity(
     val schemaVersion: String,
     val validatedJson: String,
     val createdAtEpochMs: Long,
+)
+
+/**
+ * Corrida de interpretación semántica (Task I4). Registra identidad, versiones congeladas
+ * (app, whisper, prompt, esquema y validador) y el hash del transcripto sobre el que se
+ * infirió. `provenance` guarda el resumen tipado del router, nunca cuerpos HTTP ni claves.
+ */
+@Entity(tableName = "interpretation_runs", indices = [Index("sessionId")])
+data class InterpretationRunEntity(
+    @PrimaryKey val id: String,
+    val sessionId: String,
+    val state: String,
+    val appVersion: String,
+    val whisperVersion: String,
+    val promptVersion: String,
+    val schemaVersion: String,
+    val validatorVersion: String,
+    val transcriptHash: String,
+    val mode: String,
+    val provenance: String?,
+    val failure: String?,
+    val startedAtEpochMs: Long,
+    val completedAtEpochMs: Long?,
+)
+
+/**
+ * Paquete de una corrida. La clave compuesta `runId+packetId` mantiene los paquetes de una
+ * misma corrida sin colisionar entre corridas. Solo persiste el hash y el tamaño del
+ * request, nunca el texto enviado al proveedor.
+ */
+@Entity(
+    tableName = "interpretation_packets",
+    primaryKeys = ["runId", "packetId"],
+    indices = [Index("runId")],
+)
+data class InterpretationPacketEntity(
+    val runId: String,
+    val packetId: String,
+    val ordinal: Int,
+    val state: String,
+    val requestHash: String,
+    val requestBytes: Int,
+    val provider: String?,
+    val startedAtEpochMs: Long?,
+    val completedAtEpochMs: Long?,
+)
+
+/**
+ * Intento contra un proveedor para un paquete. Guarda solo el resultado tipado (`outcome`),
+ * el modelo, si hubo acierto de caché y la duración. Nunca cuerpos, encabezados ni claves.
+ */
+@Entity(tableName = "provider_attempts", indices = [Index(value = ["runId", "packetId"])])
+data class ProviderAttemptEntity(
+    @PrimaryKey val id: String,
+    val runId: String,
+    val packetId: String,
+    val provider: String,
+    val modelId: String,
+    val attempt: Int,
+    val cacheHit: Boolean,
+    val outcome: String,
+    val durationMs: Long,
+    val startedAtEpochMs: Long,
+)
+
+/**
+ * Evidencia de un claim resuelta a un span de transcripción local real. `ordinal` conserva
+ * el orden de la evidencia y `contextual` marca los spans que solo aportan contexto.
+ */
+@Entity(primaryKeys = ["claimId", "transcriptSpanId"], tableName = "claim_evidence")
+data class ClaimEvidenceEntity(
+    val claimId: String,
+    val transcriptSpanId: String,
+    val ordinal: Int,
+    val contextual: Boolean,
+)
+
+/** Supersesión: `newClaimId` reemplaza a `oldClaimId` dentro de la misma corrida. */
+@Entity(primaryKeys = ["newClaimId", "oldClaimId"], tableName = "claim_supersessions")
+data class ClaimSupersessionEntity(
+    val newClaimId: String,
+    val oldClaimId: String,
 )

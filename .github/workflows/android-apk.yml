@@ -14,12 +14,16 @@ on:
       - feature/phase4-whisper-recovery
       - feature/phase5-contextual-interpretation
       - "feature/phase5-task-*"
+      - feature/phase5-2-quality
+      - "feature/phase5-2-task-*"
+      - "feature/phase6-task-*"
     tags:
       - "v*"
   pull_request:
     branches:
       - main
       - feature/phase5-contextual-interpretation
+      - feature/phase5-2-quality
 
 permissions:
   contents: write

@@ -16,32 +16,33 @@ import org.junit.Test
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class CaptureViewModelTest {
  @Test fun `draft editor locks while mode reprocessing is busy`(){assertTrue(draftEditorEnabled(false));assertFalse(draftEditorEnabled(true))}
- @Test fun `changing mode saves all unsaved fields before reprocessing`()=runTest{
+ @Test fun `changing mode reprojects locally without scheduling reprocessing`()=runTest{
   val report=RecordingReport(SessionId("s"),"2026-09-11",emptyList(),SessionState.AWAITING_REVIEW)
-  val original=DiaryDraftEntity("draft","s","CONSERVATIVE","old","old","1","2","old",1)
+  val original=DiaryDraftEntity("draft","s","CONSERVATIVE","tema","actividad","1","2","tarea",1)
   val drafts=MutableStateFlow<DiaryDraftEntity?>(original)
-  val reprocessStarted=CompletableDeferred<Unit>();val finishReprocess=CompletableDeferred<Unit>();var saveCalls=0;var resumeCalls=0
-  val delegated=UiActions()
-  val actions=object:CaptureActions by delegated{
-   override suspend fun saveDraft(draft:DiaryDraftEntity){saveCalls++;drafts.value=draft}
-   override suspend fun resumeProcessing(id:SessionId,mode:InterpretationMode){
-    resumeCalls++
-    val saved=drafts.value!!
-    assertEquals(listOf("tema escrito","actividad oral","42","7","tarea escrita"),listOf(saved.topics,saved.activities,saved.pages,saved.exercises,saved.homework))
-    assertTrue(saved.userEdited)
-    reprocessStarted.complete(Unit);finishReprocess.await()
-    drafts.value=saved.copy(mode=mode.name,updatedAtEpochMs=2)
-   }
+  var resumeCalls=0;var startCalls=0;var reprojectedId:SessionId?=null;var reprojectedMode:InterpretationMode?=null
+  val actions=object:CaptureActions by UiActions(){
+   override suspend fun startProcessing(id:SessionId,mode:InterpretationMode){startCalls++}
+   override suspend fun resumeProcessing(id:SessionId,mode:InterpretationMode){resumeCalls++}
+   override suspend fun reprojectMode(id:SessionId,mode:InterpretationMode){reprojectedId=id;reprojectedMode=mode;drafts.value=drafts.value!!.copy(mode=mode.name,updatedAtEpochMs=2)}
   }
   val vm=CaptureViewModel(UiSessions(null,report),actions,backgroundScope,drafts);runCurrent()
-  vm.onMode(InterpretationMode.EXHAUSTIVE,"tema escrito","actividad oral","42","7","tarea escrita");reprocessStarted.await();runCurrent()
-  assertTrue(vm.state.value.busy)
-  vm.onMode(InterpretationMode.BALANCED,"reemplazo","reemplazo","0","0","reemplazo")
-  vm.onApprove("reemplazo","reemplazo","0","0","reemplazo");runCurrent()
-  assertEquals(1,saveCalls);assertEquals(1,resumeCalls);assertEquals(0,delegated.approvalCalls)
-  finishReprocess.complete(Unit);runCurrent()
-  assertEquals("tema escrito",vm.state.value.draft!!.topics)
+  vm.onMode(InterpretationMode.EXHAUSTIVE);runCurrent()
+  assertEquals(0,resumeCalls);assertEquals(0,startCalls) // cambiar de modo nunca reprograma trabajo ni llama a la red
+  assertEquals(SessionId("s"),reprojectedId);assertEquals(InterpretationMode.EXHAUSTIVE,reprojectedMode)
   assertEquals("EXHAUSTIVE",vm.state.value.draft!!.mode)
+ }
+ @Test fun `semantic run state is exposed and continue local forces local`()=runTest{
+  val report=RecordingReport(SessionId("s"),"2026-09-11",emptyList(),SessionState.EXTRACTING)
+  val progress=MutableStateFlow<TranscriptionProgress?>(TranscriptionProgress(SessionId("s"),60_000,60_000,0,0,0,TranscriptionRunState.PROCESSING,null))
+  val semantic=MutableStateFlow<SemanticRunUi?>(SemanticRunUi("RUNNING",null,canContinueLocal=true))
+  var continuedId:SessionId?=null;var continuedMode:InterpretationMode?=null
+  val actions=object:CaptureActions by UiActions(){override suspend fun continueLocal(id:SessionId,mode:InterpretationMode){continuedId=id;continuedMode=mode}}
+  val vm=CaptureViewModel(UiSessions(null,report),actions,backgroundScope,semanticRuns=semantic,observeProgress={progress});runCurrent()
+  assertEquals("RUNNING",vm.state.value.semanticRun?.state)
+  assertTrue(vm.state.value.semanticRun?.canContinueLocal==true)
+  vm.onContinueLocal(InterpretationMode.CONSERVATIVE);runCurrent()
+  assertEquals(SessionId("s"),continuedId);assertEquals(InterpretationMode.CONSERVATIVE,continuedMode)
  }
  @Test fun `restart surfaces pending cleanup without retrying it`()=runTest{
   val pending=RecordingReport(SessionId("s"),"2026-09-12",emptyList(),SessionState.CLEANUP_PENDING)

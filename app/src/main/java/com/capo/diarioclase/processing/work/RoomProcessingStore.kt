@@ -4,6 +4,8 @@ import androidx.room.withTransaction
 import com.capo.diarioclase.core.clock.Clock
 import com.capo.diarioclase.data.db.AudioSegmentEntity
 import com.capo.diarioclase.data.db.BlockId
+import com.capo.diarioclase.data.db.ClaimEvidenceEntity
+import com.capo.diarioclase.data.db.ClaimSupersessionEntity
 import com.capo.diarioclase.data.db.DiaryDraftEntity
 import com.capo.diarioclase.data.db.DiarioDatabase
 import com.capo.diarioclase.data.db.EvidenceClaimEntity
@@ -30,8 +32,76 @@ import kotlinx.coroutines.flow.map
 class RoomProcessingStore(
     private val database: DiarioDatabase,
     private val clock: Clock,
-) : ProcessingStore {
+) : ProcessingStore, LocalReprojectionStore {
     private val dao = database.sessions()
+
+    override suspend fun persistedClaims(sessionId: SessionId): List<EvidenceClaim> = database.withTransaction {
+        val rows = dao.claimsSnapshot(sessionId.value)
+        val claims = ArrayList<EvidenceClaim>(rows.size)
+        for (row in rows) {
+            val evidenceRows = dao.claimEvidence(row.id)
+            val spans = if (evidenceRows.isNotEmpty()) {
+                dao.spansByIds(evidenceRows.map { it.transcriptSpanId }).associateBy { it.id }
+            } else {
+                emptyMap()
+            }
+            // Rehidrata la evidencia completa desde los spans de transcripción reales; mientras
+            // la sesión no se aprobó, siguen disponibles y por eso reabrir conserva las evidencias.
+            val evidences = evidenceRows.mapNotNull { evidence ->
+                spans[evidence.transcriptSpanId]?.let { span ->
+                    EvidenceRef(
+                        blockId = BlockId(span.blockId),
+                        startMs = span.startMs,
+                        endMs = span.endMs,
+                        excerpt = span.text,
+                        contextual = evidence.contextual,
+                    )
+                }
+            }
+            val base = row.toDomain()
+            claims += base.copy(
+                evidences = evidences.ifEmpty { listOf(base.evidence) },
+                transcriptSpanIds = evidenceRows.map { it.transcriptSpanId },
+                supersedesClaimKeys = dao.claimSupersessions(row.id),
+            )
+        }
+        claims
+    }
+
+    fun observeInterpretationRun(sessionId: String): Flow<com.capo.diarioclase.data.db.InterpretationRunEntity?> =
+        dao.observeLatestRun(sessionId)
+
+    fun observeLatestInterpretationRun(): Flow<com.capo.diarioclase.data.db.InterpretationRunEntity?> =
+        dao.observeLatestRunAny()
+
+    /**
+     * Guarda la ficha reproyectada respetando una edición previa del docente: si la ficha
+     * almacenada está marcada como editada, sus campos ganan; siempre se actualiza el modo.
+     * No reescribe claims: la reproyección de Task I7 parte de los ya persistidos.
+     */
+    override suspend fun mergeFieldEditsAndSave(draft: DiaryDraft): DiaryDraft = database.withTransaction {
+        val edited = dao.draft(draft.sessionId)?.takeIf { it.userEdited }
+        val merged = DiaryDraftEntity(
+            id = draft.sessionId,
+            sessionId = draft.sessionId,
+            mode = draft.mode.name,
+            topics = edited?.topics ?: draft.topics,
+            activities = edited?.activities ?: draft.activities,
+            pages = edited?.pages ?: draft.pages,
+            exercises = edited?.exercises ?: draft.exercises,
+            homework = edited?.homework ?: draft.homework,
+            updatedAtEpochMs = clock.nowEpochMs(),
+            userEdited = edited?.userEdited ?: false,
+        )
+        dao.saveDraft(merged)
+        draft.copy(
+            topics = merged.topics,
+            activities = merged.activities,
+            pages = merged.pages,
+            exercises = merged.exercises,
+            homework = merged.homework,
+        )
+    }
 
     override suspend fun sessionState(id: SessionId) =
         SessionState.valueOf(requireNotNull(dao.session(id.value)).state)
@@ -135,6 +205,8 @@ class RoomProcessingStore(
         draft: DiaryDraft,
     ) = database.withTransaction {
         val existingDraft = dao.draft(id.value)
+        dao.deleteClaimEvidenceForSession(id.value)
+        dao.deleteClaimSupersessionsForSession(id.value)
         dao.deleteMachineClaims(id.value)
         dao.insertClaims(
             claims.map {
@@ -152,9 +224,36 @@ class RoomProcessingStore(
                     it.evidence.endMs,
                     it.evidence.excerpt,
                     it.active,
+                    runId = it.runId,
+                    packetId = it.packetId,
+                    providerClaimKey = it.providerClaimKey,
+                    declaredConfidence = it.declaredConfidence,
+                    effectiveConfidence = it.effectiveConfidence,
+                    claimOrdinal = it.claimOrdinal,
                 )
             },
         )
+        // Persiste el grafo normalizado: evidencia resuelta a spans reales y supersesiones.
+        // Así reabrir la sesión conserva la evidencia múltiple y las correcciones.
+        claims.forEach { claim ->
+            if (claim.transcriptSpanIds.isNotEmpty()) {
+                dao.insertClaimEvidence(
+                    claim.transcriptSpanIds.mapIndexed { index, spanId ->
+                        ClaimEvidenceEntity(
+                            claimId = claim.id,
+                            transcriptSpanId = spanId,
+                            ordinal = index,
+                            contextual = claim.evidences.getOrNull(index)?.contextual ?: false,
+                        )
+                    },
+                )
+            }
+            if (claim.supersedesClaimKeys.isNotEmpty()) {
+                dao.insertClaimSupersessions(
+                    claim.supersedesClaimKeys.map { old -> ClaimSupersessionEntity(claim.id, old) },
+                )
+            }
+        }
         val fields = existingDraft?.takeIf { it.userEdited }
         dao.saveDraft(
             DiaryDraftEntity(
@@ -204,6 +303,12 @@ class RoomProcessingStore(
             ClaimOrigin.valueOf(origin),
             EvidenceRef(BlockId(blockId), startMs, endMs, excerpt),
             active,
+            runId = runId,
+            packetId = packetId,
+            providerClaimKey = providerClaimKey.ifEmpty { id },
+            declaredConfidence = declaredConfidence,
+            effectiveConfidence = effectiveConfidence,
+            claimOrdinal = claimOrdinal,
         )
 
     private fun TranscriptSpanEntity.toDomain() =
