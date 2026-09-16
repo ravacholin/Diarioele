@@ -1,6 +1,7 @@
 package com.capo.diarioclase.recording.audio
 
 import com.capo.diarioclase.data.db.BlockId
+import com.capo.diarioclase.data.db.SegmentId
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -71,6 +72,44 @@ class OpusSegmentStoreTest {
         assertTrue(beforeClose.contentEquals(File(open.path).readBytes()))
         assertFalse(folder.root.listFiles().orEmpty().any { it.name.endsWith(".ready.ogg") })
     }
+
+    @Test
+    fun `abort releases encoder without finishing and preserves open file`() = runTest {
+        val encoder = TrackingEncoder(folder.newFile("source.tmp"))
+        val store = OpusSegmentStore(
+            root = folder.root,
+            encoderFactory = StreamingAudioEncoderFactory { output, _ ->
+                encoder.output = output
+                encoder
+            },
+            inspector = EncodedAudioInspector { error("No debe inspeccionar un aborto") },
+        )
+        val open = store.open(BlockId("block"), 0)
+        store.append(open, shortArrayOf(1, 2), 2)
+
+        store.abort(open)
+
+        assertTrue(encoder.closed)
+        assertFalse(encoder.finished)
+        assertTrue(File(open.path).exists())
+        assertFalse(folder.root.listFiles().orEmpty().any { it.name.endsWith(".ready.ogg") })
+    }
+
+    @Test
+    fun `recovery also reports ready OGG left before metadata persistence`() = runTest {
+        val ready = folder.newFile("block__0__segment.ready.ogg").apply { writeBytes(byteArrayOf(1)) }
+        val info = EncodedAudioInfo(1_000, 16_000, 1, "audio/opus")
+        val store = OpusSegmentStore(
+            root = folder.root,
+            encoderFactory = StreamingAudioEncoderFactory { _, _ -> error("No debe grabar") },
+            inspector = EncodedAudioInspector { info },
+        )
+
+        val recovered = store.repairOpenSegments()
+
+        assertEquals(listOf(SegmentId("segment")), recovered.map { it.id })
+        assertEquals(ready.absolutePath, recovered.single().path)
+    }
 }
 
 private class FileWritingEncoder(
@@ -86,4 +125,23 @@ private class FileWritingEncoder(
     override fun finish(): EncodedAudioInfo = info
 
     override fun close() = Unit
+}
+
+private class TrackingEncoder(initialOutput: File) : StreamingAudioEncoder {
+    var output: File = initialOutput
+    var finished = false
+    var closed = false
+
+    override fun append(pcm: ShortArray, count: Int) {
+        output.writeBytes(ByteArray(count) { pcm[it].toByte() })
+    }
+
+    override fun finish(): EncodedAudioInfo {
+        finished = true
+        return EncodedAudioInfo(1_000, 16_000, 1, "audio/opus")
+    }
+
+    override fun close() {
+        closed = true
+    }
 }
