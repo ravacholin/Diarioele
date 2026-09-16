@@ -13,6 +13,14 @@ import java.io.File
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class RecordingCoordinatorTest {
+ @Test fun `rotates at one minute without losing remainder`()=runTest{
+  val store=MemorySegments();val coordinator=RecordingCoordinator(
+   sessions=FakeSessions(),segments=store,sourceFactory={FiniteSource(16_000*61)},clock=Clock{0},scope=this,
+   maxSegmentSamples=16_000*60,
+  )
+  coordinator.recordBlock(BlockId("b"),FiniteSource(16_000*61))
+  assertEquals(listOf(60_000L,1_000L),store.closedDurations)
+ }
  @Test fun `three minutes closes segment before opening next`()=runTest{
   val store=MemorySegments();val coordinator=RecordingCoordinator(FakeSessions(),store,{FiniteSource(16_000*181)},Clock{0},this)
   coordinator.recordBlock(BlockId("b"),FiniteSource(16_000*181))
