@@ -70,6 +70,7 @@ import kotlinx.coroutines.flow.Flow
  @Query("SELECT * FROM interpretation_packets WHERE runId=:runId ORDER BY ordinal") suspend fun interpretationPackets(runId:String):List<InterpretationPacketEntity>
  @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun saveProviderAttempt(attempt:ProviderAttemptEntity)
  @Query("SELECT * FROM provider_attempts WHERE runId=:runId AND packetId=:packetId ORDER BY attempt") suspend fun providerAttempts(runId:String,packetId:String):List<ProviderAttemptEntity>
+ @Query("SELECT * FROM provider_attempts WHERE runId IN (SELECT id FROM interpretation_runs ORDER BY startedAtEpochMs DESC LIMIT 1) ORDER BY startedAtEpochMs DESC,attempt DESC LIMIT 1") fun observeLatestAttempt():Flow<ProviderAttemptEntity?>
  @Query("DELETE FROM claim_evidence WHERE claimId=:claimId") suspend fun deleteClaimEvidence(claimId:String)
  @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun insertClaimEvidence(rows:List<ClaimEvidenceEntity>)
  @Query("SELECT * FROM claim_evidence WHERE claimId=:claimId ORDER BY ordinal") suspend fun claimEvidence(claimId:String):List<ClaimEvidenceEntity>

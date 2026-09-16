@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -54,6 +55,16 @@ class MainActivity : ComponentActivity() {
                     semanticRuns = app.processingStore.observeLatestInterpretationRun().map { run ->
                         run?.let { SemanticRunUi(it.state, it.failure, canContinueLocal = it.state == "RUNNING") }
                     },
+                    interpretations = app.processingStore.observeLatestAttempt().map { attempt ->
+                        attempt?.let {
+                            InterpretationProgressUi(
+                                packet = 0, totalPackets = 0,
+                                provider = runCatching { com.capo.diarioclase.processing.semantic.InferenceProvider.valueOf(it.provider) }.getOrNull(),
+                                attempt = it.attempt, cacheHit = it.cacheHit, elapsedMs = it.durationMs,
+                                provenance = it.outcome, canRetry = true, canContinueLocal = true,
+                            )
+                        }
+                    },
                     observeProgress = { app.transcriptionScheduler.observeProgress(it) },
                 ) as T
                 ArchiveViewModel::class.java -> ArchiveViewModel(app.diaryRepository) as T
@@ -66,6 +77,13 @@ class MainActivity : ComponentActivity() {
             var screen by rememberSaveable(stateSaver = screenSaver) { mutableStateOf<AppScreen>(AppScreen.Archive) }
             val captureState by capture.state.collectAsState()
             val archiveState by archive.state.collectAsState()
+            // Storage Access Framework para el corpus local (Fase 6): exportar/importar JSONL.
+            val exportCorpus = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+                uri?.let { capture.onExportCorpus(it.toString()) }
+            }
+            val importCorpus = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                uri?.let { capture.onImportCorpus(it.toString()) }
+            }
             LaunchedEffect(captureState.status, captureState.diaryId) {
                 if (captureState.status == CaptureStatus.CLEANUP_PENDING) screen = AppScreen.Capture
                 if (captureState.status == CaptureStatus.ARCHIVED) captureState.diaryId?.let { id ->
@@ -106,6 +124,13 @@ class MainActivity : ComponentActivity() {
                                         capture::onContinueLocal,
                                         capture::onSaveDraft, capture::onApprove, capture::onRetryCleanup,
                                         interpretationMode = archiveState.mode,
+                                        onAcceptClaim = capture::acceptClaim,
+                                        onRejectClaim = capture::rejectClaim,
+                                        onCorrectClaim = capture::correctClaim,
+                                        onSaveExample = capture::onSaveExample,
+                                        onDeleteExamples = capture::onDeleteAllExamples,
+                                        onExportCorpus = { exportCorpus.launch("corpus-diarioele.jsonl") },
+                                        onImportCorpus = { importCorpus.launch(arrayOf("application/json")) },
                                     )
                                 }
                             }
