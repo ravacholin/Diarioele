@@ -147,16 +147,18 @@ No se necesita audio real ni corpus. Cada error observado luego en el teléfono 
 Último checkpoint integrado:
 
 ```text
-Task integrada: 8 (integración del router + UI de configuración) sobre Tasks 0–7
-Task 8: PR #12, head 5fbb38d, merge 695115a, run #130 SUCCESS
-         (parte 1 backend 287cc39 verde; parte 2 UI con re-run tras un 429 de Maven)
-Base SHA de Task 9: 695115aabc6ea3185ac74a907ed25ae6e910d281
+Entrega integrada: Fase 6 (quality loop) Q0–Q7 → 0.6.0-quality-loop (versionCode 10)
+Rama: claude/fase-6-quality-loop-hq4oex; PR contra main (#26)
+Q0 contratos del quality loop; Q1 grounding + confianza efectiva (quality-score-v1);
+Q2 esquemas nativos + prompts de reparación + preflight de facturación OpenRouter;
+Q3 fusión híbrida local+remota con procedencia; Q4 revisión estructurada + migración 6→7;
+Q5 observabilidad saneada + reintento/continuar local; Q6 corpus local opt-in (JSONL, SAF);
+Q7 integración: señales de marcadores, EvaluationSummary, corpus reachable, release.
 Pruebas: testDebugUnitTest + lintDebug + assembleDebug + assembleDebugAndroidTest
-Resultado: verde; el pipeline usa el router con fallback local y hay UI de proveedores
-Verificación: la UI Compose compila y su controlador pasa tests; el aspecto visual se
-              confirma en la prueba física (Task 9)
-Riesgos pendientes: release + prueba física (Task 9), requiere el dispositivo
-Próxima tarea habilitada: 9 (release 0.5.0-free-router + prueba física)
+Resultado: verde. Sin red ni credenciales en las pruebas.
+Riesgos pendientes: prueba física en el Moto g max (PHASE6_QUALITY_DEVICE_TEST.md) y la UI
+                    Compose fina de revisión/corpus/observabilidad (backend cableado y probado).
+Próxima tarea habilitada: benchmark físico 0.6.0-quality-loop antes de integrar a main.
 ```
 
 Después de cada integración, reemplazar el bloque anterior con el mismo formato. No marcar una tarea como completa basándose solamente en el reporte de un agente.

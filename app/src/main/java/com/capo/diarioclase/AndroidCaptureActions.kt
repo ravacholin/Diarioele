@@ -27,6 +27,8 @@ class AndroidCaptureActions(private val context:Context,private val app:DiarioCl
  override suspend fun saveDraft(draft:DiaryDraftEntity){app.processingStore.saveEditedDraft(draft)}
  override suspend fun reviewClaim(sessionId:SessionId,claimId:String,action:ReviewAction,correctedValue:String?){app.processingStore.reviewClaim(claimId,action,correctedValue)}
  override suspend fun retryInterpretation(id:SessionId,mode:InterpretationMode){preferLocal(false);app.transcriptionScheduler.resume(id,mode)}
+ override suspend fun saveExample(id:SessionId){app.localExampleService.savePreview(app.localExampleService.preview(id.value))}
+ override suspend fun deleteAllExamples(){app.localExampleService.deleteAll()}
  override suspend fun approveAndClean(draft:DiaryDraftEntity):CleanupOutcome=app.cleanupCoordinator.approveAndClean(SessionId(draft.sessionId),draft)
  override suspend fun retryCleanup(sessionId:SessionId):CleanupOutcome=app.cleanupCoordinator.retryCleanup(sessionId)
  private fun start(action:String,id:SessionId){ContextCompat.startForegroundService(context,Intent(context,RecordingService::class.java).setAction(action).putExtra(RecordingService.EXTRA_SESSION_ID,id.value))}

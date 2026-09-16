@@ -83,6 +83,14 @@ interface ProcessingStore {
         failure: TranscriptionFailure,
     )
     suspend fun transcript(id: SessionId): List<TranscriptSpan>
+
+    /**
+     * Señales locales (marcadores manuales) que acompañan la fusión híbrida (Fase 6, Q7). No
+     * viajan a un proveedor. Por defecto vacías para implementaciones que no las necesitan.
+     */
+    suspend fun loadSignals(id: SessionId): com.capo.diarioclase.processing.semantic.LocalInterpretationSignals =
+        com.capo.diarioclase.processing.semantic.LocalInterpretationSignals()
+
     suspend fun draft(id: SessionId): DiaryDraftEntity?
     suspend fun saveEvidence(id: SessionId, claims: List<EvidenceClaim>, draft: DiaryDraft)
     suspend fun updateSession(id: SessionId, state: SessionState)
@@ -353,7 +361,7 @@ class TranscriptionCoordinator(
         // La interpretación remota (router + fallback local) reemplaza a la extracción
         // directa cuando hay un intérprete compuesto; el modo se aplica siempre localmente
         // al proyectar, sin volver a llamar a la red.
-        val claims = interpreter?.interpret(sessionId, transcript)?.claims
+        val claims = interpreter?.interpret(sessionId, transcript, signals = store.loadSignals(sessionId))?.claims
             ?: reducer.reduce(extractor.extract(transcript))
         val generatedDraft = materializer.materialize(sessionId.value, mode, claims)
         val draft = store.draft(sessionId)?.takeIf { it.userEdited }?.let { edited ->

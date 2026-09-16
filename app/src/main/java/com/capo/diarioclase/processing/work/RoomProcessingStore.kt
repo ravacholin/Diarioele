@@ -293,6 +293,22 @@ class RoomProcessingStore(
 
     override suspend fun draft(id: SessionId) = dao.draft(id.value)
 
+    /**
+     * Carga los marcadores manuales de la sesión como señales locales (Fase 6, Q7). Los ids de
+     * marcador y de bloque quedan locales y nunca viajan a un proveedor.
+     */
+    override suspend fun loadSignals(id: SessionId): com.capo.diarioclase.processing.semantic.LocalInterpretationSignals =
+        com.capo.diarioclase.processing.semantic.LocalInterpretationSignals(
+            markers = dao.markersForSession(id.value).map { marker ->
+                com.capo.diarioclase.processing.semantic.ManualMarkerSignal(
+                    markerId = marker.id,
+                    type = marker.type,
+                    blockId = marker.blockId,
+                    offsetMs = marker.offsetMs,
+                )
+            },
+        )
+
     suspend fun saveEditedDraft(draft: DiaryDraftEntity) =
         dao.saveDraft(draft.copy(updatedAtEpochMs = clock.nowEpochMs(), userEdited = true))
 

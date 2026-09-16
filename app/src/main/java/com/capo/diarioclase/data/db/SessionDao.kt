@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.Flow
  @Query("SELECT * FROM audio_segments WHERE id=:id") suspend fun segment(id:String):AudioSegmentEntity?
  @Insert suspend fun insertMarker(x:MarkerEntity)
  @Query("SELECT * FROM markers WHERE blockId=:id ORDER BY offsetMs") suspend fun markers(id:String):List<MarkerEntity>
+ @Query("SELECT * FROM markers WHERE sessionId=:sessionId ORDER BY offsetMs") suspend fun markersForSession(sessionId:String):List<MarkerEntity>
  @Query("SELECT * FROM sessions WHERE id=:id") suspend fun session(id:String):SessionEntity?
  @Query("SELECT * FROM blocks WHERE id=:id") suspend fun block(id:String):BlockEntity?
  @Query("SELECT COUNT(*) FROM blocks WHERE sessionId=:id") suspend fun blockCount(id:String):Int
