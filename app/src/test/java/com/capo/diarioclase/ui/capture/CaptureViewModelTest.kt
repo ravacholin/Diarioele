@@ -15,6 +15,12 @@ import org.junit.Assert.*
 import org.junit.Test
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class CaptureViewModelTest {
+ @Test fun `persisted recording failure is shown after service stops`()=runTest{
+  val aggregate=SessionAggregate(SessionId("s"),null,SessionState.PAUSED,listOf(BlockId("b")),4_000)
+  val vm=CaptureViewModel(UiSessions(aggregate),UiActions(),backgroundScope,recordingFailures=flowOf(RecordingFailure.STORAGE));runCurrent()
+  assertEquals(CaptureStatus.PAUSED,vm.state.value.status)
+  assertTrue(vm.state.value.message?.contains("almacenamiento")==true)
+ }
  @Test fun `draft editor locks while mode reprocessing is busy`(){assertTrue(draftEditorEnabled(false));assertFalse(draftEditorEnabled(true))}
  @Test fun `changing mode reprojects locally without scheduling reprocessing`()=runTest{
   val report=RecordingReport(SessionId("s"),"2026-09-11",emptyList(),SessionState.AWAITING_REVIEW)

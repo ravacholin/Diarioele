@@ -5,6 +5,9 @@ import androidx.room.Room
 import androidx.work.WorkManager
 import com.capo.diarioclase.core.clock.SystemClock
 import com.capo.diarioclase.data.db.DiarioDatabase
+import com.capo.diarioclase.data.db.AppSettingEntity
+import com.capo.diarioclase.data.db.RecordingFailure
+import com.capo.diarioclase.data.db.RECORDING_FAILURE_SETTING
 import com.capo.diarioclase.data.repository.RoomDiaryRepository
 import com.capo.diarioclase.data.repository.RoomMarkerStore
 import com.capo.diarioclase.data.repository.RoomSegmentMetadataStore
@@ -172,6 +175,14 @@ class DiarioClaseApp : Application() {
             database.sessions().recoverInterruptedTranscriptions()
             recovery.onAppStart()
             database.sessions().latestCleanupPendingSession()
+        }
+    }
+
+    fun reportRecordingFailure(failure: RecordingFailure) {
+        appScope.launch {
+            database.sessions().saveSetting(
+                AppSettingEntity(RECORDING_FAILURE_SETTING, failure.name),
+            )
         }
     }
 }

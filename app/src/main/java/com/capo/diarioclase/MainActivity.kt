@@ -22,6 +22,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.capo.diarioclase.ui.archive.*
 import com.capo.diarioclase.ui.capture.*
+import com.capo.diarioclase.data.db.RecordingFailure
 import kotlinx.coroutines.flow.map
 
 sealed interface AppScreen {
@@ -55,6 +56,9 @@ class MainActivity : ComponentActivity() {
                         run?.let { SemanticRunUi(it.state, it.failure, canContinueLocal = it.state == "RUNNING") }
                     },
                     observeProgress = { app.transcriptionScheduler.observeProgress(it) },
+                    recordingFailures = app.database.sessions().observeRecordingFailure().map { code ->
+                        code?.takeIf(String::isNotBlank)?.let { runCatching { RecordingFailure.valueOf(it) }.getOrNull() }
+                    },
                 ) as T
                 ArchiveViewModel::class.java -> ArchiveViewModel(app.diaryRepository) as T
                 else -> error("Modelo de pantalla desconocido")

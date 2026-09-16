@@ -12,6 +12,8 @@ enum class SessionState { RECORDING,PAUSED,FINALIZED,TRANSCRIBING,EXTRACTING,AWA
     }
 }
 enum class SegmentState { OPEN,READY,TRANSCRIBING,TRANSCRIBED,FAILED,DELETED }
+enum class RecordingFailure { OPUS_UNAVAILABLE, STORAGE, CAPTURE }
+const val RECORDING_FAILURE_SETTING = "recording_failure"
 data class SessionAggregate(val id:SessionId,val level:CerLevel?,val state:SessionState,val blocks:List<BlockId>,val durationMs:Long)
 data class SegmentSummary(val id:SegmentId,val path:String,val durationMs:Long,val byteCount:Long,val state:SegmentState,val exists:Boolean=true,val lastTranscriptionFailure:String?=null)
 data class BlockRecordingSummary(val id:BlockId,val number:Int,val durationMs:Long,val closeReason:BlockCloseReason?,val segments:List<SegmentSummary>)
