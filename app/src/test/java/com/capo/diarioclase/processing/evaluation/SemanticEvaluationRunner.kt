@@ -12,6 +12,7 @@ import com.capo.diarioclase.processing.semantic.DiaryField
 import com.capo.diarioclase.processing.semantic.EphemeralCredential
 import com.capo.diarioclase.processing.semantic.FallbackClaimExtractor
 import com.capo.diarioclase.processing.semantic.FreeInferenceRouter
+import com.capo.diarioclase.processing.semantic.InferenceAttemptContext
 import com.capo.diarioclase.processing.semantic.InferenceProvider
 import com.capo.diarioclase.processing.semantic.InferenceProviderClient
 import com.capo.diarioclase.processing.semantic.InterpretationRequest
@@ -77,8 +78,13 @@ class SemanticEvaluationRunner(
 
         packets.forEach { packet ->
             val json = ProviderClaimsCodec.encode(packet.gold)
-            val client = InferenceProviderClient { _, _ ->
-                ProviderOutcome.Success(InferenceProvider.GEMINI, "eval-model", json)
+            val client = object : InferenceProviderClient {
+                override suspend fun infer(
+                    request: InterpretationRequest,
+                    credential: EphemeralCredential,
+                    attempt: InferenceAttemptContext,
+                ): ProviderOutcome =
+                    ProviderOutcome.Success(InferenceProvider.GEMINI, "eval-model", json)
             }
             val router = FreeInferenceRouter(
                 clients = mapOf(InferenceProvider.GEMINI to client),

@@ -55,8 +55,9 @@ class OpenAiCompatibleProviderClient(
     override suspend fun infer(
         request: InterpretationRequest,
         credential: EphemeralCredential,
+        attempt: InferenceAttemptContext,
     ): ProviderOutcome {
-        val prompt = promptFactory.create(request)
+        val prompt = promptFactory.create(request, attempt)
         val body = buildBody(prompt)
         val headers = mapOf("Authorization" to "Bearer ${credential.value}")
 
