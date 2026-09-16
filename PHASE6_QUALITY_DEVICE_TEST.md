@@ -45,3 +45,31 @@ reproduzca en `SemanticIntegrityEvaluationTest` o `SemanticQualityReportTest`.
 - Fecha:
 - Resultado por caso (1–15):
 - Observaciones:
+
+## Cobertura automática (previa a la prueba física)
+
+Antes de la firma física, la lógica detrás de estos casos ya está cubierta por la batería
+automática (`testDebugUnitTest`: 302 tests, 0 fallas; `lintDebug`, `assembleDebug` y
+`assembleDebugAndroidTest` en verde; CI `build` verde en `main`). Mapeo caso → cobertura:
+
+| # | Caso | Cobertura automática | Requiere dispositivo |
+|---|------|----------------------|----------------------|
+| 1 | Sesión corta + notificación "GENERANDO LA FICHA" | `TranscriptionWorkerTest`, `FullJourneyTest` | Sí (audio real) |
+| 2 | Transcripción larga (90 min) | — | Sí (audio + Whisper) |
+| 3 | Fallback local sin red | `RouterSemanticInterpreterTest`, `FreeInferenceRouterTest` | Sí (modo avión) |
+| 4 | Acierto de caché | `FullJourneyTest`, `RoomInterpretationCacheTest` | Parcial |
+| 5 | 429 / cuota | `FreeInferenceRouterTest` | No |
+| 6 | Timeout | `FreeInferenceRouterTest`, `RouterSemanticInterpreterTest` | No |
+| 7 | JSON inválido → una reparación | `FreeInferenceRouterTest` | No |
+| 8 | Alucinación numérica | `SemanticQualityGateTest` | No |
+| 9 | Reparación con códigos de issue | `InterpretationPromptFactoryTest`, `FreeInferenceRouterTest` | No |
+| 10 | Continuar local | `CaptureViewModelTest` | Parcial (UI) |
+| 11 | Pausa / reanudar interpretación | `CaptureViewModelTest` | Parcial (UI) |
+| 12 | Kill / restart | `FullJourneyTest` + tests de checkpoint | Sí (muerte de proceso) |
+| 13 | Aceptar / rechazar / corregir claim | `CaptureViewModelTest`, `DiarioMigrationTest` | No |
+| 14 | Guardar ejemplo anonimizado | `LocalExampleRepositoryTest`, `JsonlExampleCodecTest` | Parcial (UI/preview) |
+| 15 | Exportar JSONL (SAF) + borrar todo | `JsonlExampleCodecTest` (+ servicio) | Sí (selector SAF) |
+
+Migración Room 6→7: verificada por `DiarioMigrationTest`. La prueba física valida el audio
+real, Whisper on-device, la red en modo avión, el selector SAF, la muerte/reinicio del proceso
+y la confirmación visual de la UI; nada de eso se puede simular fuera del teléfono.
