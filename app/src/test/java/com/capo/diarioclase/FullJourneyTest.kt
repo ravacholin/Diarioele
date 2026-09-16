@@ -26,7 +26,31 @@ import com.capo.diarioclase.diary.DiaryEntry
 import com.capo.diarioclase.diary.cleanup.CleanupCoordinator
 import com.capo.diarioclase.diary.cleanup.CleanupOutcome
 import com.capo.diarioclase.diary.cleanup.RoomTemporaryCleanupStore
+import com.capo.diarioclase.data.db.TranscriptSpanEntity
+import com.capo.diarioclase.processing.evidence.ClaimCategory
+import com.capo.diarioclase.processing.evidence.ClaimStatus
+import com.capo.diarioclase.processing.evidence.DiaryFieldMaterializer
 import com.capo.diarioclase.processing.evidence.InterpretationMode
+import com.capo.diarioclase.processing.evidence.InterpretationProjector
+import com.capo.diarioclase.processing.evidence.PagesAndExercisesComposer
+import com.capo.diarioclase.processing.semantic.EphemeralCredential
+import com.capo.diarioclase.processing.semantic.FallbackClaimExtractor
+import com.capo.diarioclase.processing.semantic.FreeInferenceRouter
+import com.capo.diarioclase.processing.semantic.InferenceProvider
+import com.capo.diarioclase.processing.semantic.InferenceProviderClient
+import com.capo.diarioclase.processing.semantic.InterpretationPacketBuilder
+import com.capo.diarioclase.processing.semantic.ProviderClaimsCodec
+import com.capo.diarioclase.processing.semantic.ProviderModel
+import com.capo.diarioclase.processing.semantic.ProviderOutcome
+import com.capo.diarioclase.processing.semantic.ProviderRetryPolicy
+import com.capo.diarioclase.processing.semantic.ProviderSemanticClaim
+import com.capo.diarioclase.processing.semantic.RouterSemanticInterpreter
+import com.capo.diarioclase.processing.semantic.SemanticClaimReducer
+import com.capo.diarioclase.processing.semantic.SemanticResponseValidator
+import com.capo.diarioclase.processing.transcription.TranscriptSpan
+import com.capo.diarioclase.processing.work.InterpretationBudget
+import com.capo.diarioclase.processing.work.LocalDraftReprojector
+import com.capo.diarioclase.processing.work.RoomProcessingStore
 import com.capo.diarioclase.recording.audio.CleanupFileStore
 import com.capo.diarioclase.recording.audio.DeleteResult
 import com.capo.diarioclase.recording.audio.FileSegmentStore
@@ -210,6 +234,112 @@ class FullJourneyTest {
             audioRoot.deleteRecursively()
         }
     }
+
+    @Test fun `phase 5_2 integrity journey`() = runTest {
+        val dbName = "phase52-journey-${UUID.randomUUID()}.db"
+        val sessionId = SessionId("journey")
+        val budget = InterpretationBudget(60_000, 120_000)
+
+        // Respuesta "gold" por paquete (bloque 1, luego bloque 2). La clave de proveedor "C1" se
+        // repite entre paquetes para probar que la identidad global evita colisiones (Task I5).
+        val goldBlock1 = ProviderClaimsCodec.encode(
+            listOf(
+                ProviderSemanticClaim("C1", "PAGE", "14", "14", "PERFORMED", 0.96, listOf("B1-S1"), emptyList()),
+                ProviderSemanticClaim("C2", "EXERCISE", "3 (p. 14)", "3", "PERFORMED", 0.95, listOf("B1-S1", "B1-S2"), emptyList()),
+            ),
+        )
+        val goldBlock2 = ProviderClaimsCodec.encode(
+            listOf(
+                ProviderSemanticClaim("C1", "EXERCISE", "4", "4", "ASSIGNED", 0.95, listOf("B2-S1", "B2-S2"), emptyList()),
+            ),
+        )
+        var providerCalls = 0
+        val queue = ArrayDeque(listOf(goldBlock1, goldBlock2))
+        val client = InferenceProviderClient { _, _ ->
+            providerCalls++
+            ProviderOutcome.Success(InferenceProvider.GEMINI, "gemini-free", queue.removeFirst())
+        }
+        val interpreter = RouterSemanticInterpreter(
+            packetBuilder = InterpretationPacketBuilder(),
+            router = FreeInferenceRouter(
+                clients = mapOf(InferenceProvider.GEMINI to client),
+                validator = SemanticResponseValidator(),
+                fallback = FallbackClaimExtractor(),
+                retryPolicy = ProviderRetryPolicy(retryDelayMs = 0),
+                cache = null,
+                credentialFor = { EphemeralCredential("k") },
+                onDelay = {},
+                nowEpochMs = { 1 },
+            ),
+            reducer = SemanticClaimReducer(),
+            fallback = FallbackClaimExtractor(),
+            enabledProviders = { listOf(ProviderModel(InferenceProvider.GEMINI, "gemini-free")) },
+            runIdFactory = { "run-journey" },
+        )
+        val materializer = DiaryFieldMaterializer(InterpretationProjector(), PagesAndExercisesComposer())
+
+        // Dos segmentos de audio con el reloj reiniciado: el bloque 2 empieza en 0 y no debe
+        // adelantarse al bloque 1 (cronología de Task I2).
+        val spans = listOf(
+            TranscriptSpan("t-a1", "segA", com.capo.diarioclase.data.db.BlockId("blk1"), 8_000, 9_000, "Vamos a la página catorce", 0.9),
+            TranscriptSpan("t-a2", "segA", com.capo.diarioclase.data.db.BlockId("blk1"), 9_000, 10_000, "Hacemos el ejercicio tres", 0.9),
+            TranscriptSpan("t-b1", "segB", com.capo.diarioclase.data.db.BlockId("blk2"), 0, 1_000, "El ejercicio cuatro", 0.9),
+            TranscriptSpan("t-b2", "segB", com.capo.diarioclase.data.db.BlockId("blk2"), 1_000, 2_000, "queda para casa", 0.9),
+        )
+
+        val firstPages: String
+        val firstHomework: String
+        val first = journeyDatabase(dbName)
+        try {
+            seedTranscript(first, sessionId, spans)
+            val store = RoomProcessingStore(first, Clock { 5 })
+            val claims = interpreter.interpret(sessionId, spans, budget).claims
+            val draft = materializer.materialize(sessionId.value, InterpretationMode.CONSERVATIVE, claims)
+            store.saveEvidence(sessionId, claims, draft)
+            firstPages = draft.pages
+            firstHomework = draft.homework
+        } finally {
+            first.close()
+        }
+
+        assertEquals("14 (3)", firstPages)
+        assertEquals("4", firstHomework)
+        assertEquals(2, providerCalls) // un paquete por bloque
+
+        val reopened = journeyDatabase(dbName)
+        try {
+            val store = RoomProcessingStore(reopened, Clock { 6 })
+            val persisted = store.persistedClaims(sessionId)
+            val assigned = persisted.single { it.category == ClaimCategory.EXERCISE && it.status == ClaimStatus.ASSIGNED }
+            assertEquals("4", assigned.value)
+            assertEquals(2, assigned.evidences.size) // la evidencia sobrevive al reabrir
+
+            // Cambiar de modo reproyecta localmente: no hay llamadas nuevas a proveedores.
+            val callsBeforeModeChange = providerCalls
+            val reprojected = LocalDraftReprojector(store, materializer).reproject(sessionId, InterpretationMode.EXHAUSTIVE)
+            assertEquals(callsBeforeModeChange, providerCalls)
+            assertEquals(InterpretationMode.EXHAUSTIVE, reprojected.mode)
+        } finally {
+            reopened.close()
+            context.deleteDatabase(dbName)
+        }
+    }
+
+    private suspend fun seedTranscript(db: DiarioDatabase, sessionId: SessionId, spans: List<TranscriptSpan>) {
+        val dao = db.sessions()
+        dao.insertSession(SessionEntity(sessionId.value, "2026-09-16", CerLevel.B1.name, SessionState.EXTRACTING.name, 1, 1))
+        dao.insertBlock(BlockEntity("blk1", sessionId.value, 0, 1, 2, BlockCloseReason.FINALIZED.name))
+        dao.insertBlock(BlockEntity("blk2", sessionId.value, 1, 3, 4, BlockCloseReason.FINALIZED.name))
+        dao.saveSegment(AudioSegmentEntity("segA", "blk1", 0, "/tmp/segA.wav", 1, 2_000, null, SegmentState.TRANSCRIBED.name))
+        dao.saveSegment(AudioSegmentEntity("segB", "blk2", 0, "/tmp/segB.wav", 1, 2_000, null, SegmentState.TRANSCRIBED.name))
+        dao.insertTranscript(
+            spans.map { TranscriptSpanEntity(it.id, it.audioSegmentId, it.blockId.value, it.startMs, it.endMs, it.text, it.confidence) },
+        )
+    }
+
+    private fun journeyDatabase(name: String) = Room.databaseBuilder(context, DiarioDatabase::class.java, name)
+        .allowMainThreadQueries()
+        .build()
 
     private fun database(name: String) = Room.databaseBuilder(context, DiarioDatabase::class.java, name)
         .addMigrations(DiarioDatabase.MIGRATION_1_2, DiarioDatabase.MIGRATION_2_3)
