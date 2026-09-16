@@ -61,6 +61,9 @@ class AndroidOpusWindowReader(
                 sourceSampleRate = decoded.sampleRate,
                 targetSampleRate = targetSampleRate,
             )
+            check(resampled.size >= expectedSamples) {
+                "La ventana Opus está truncada: ${resampled.size} de $expectedSamples muestras"
+            }
             return PcmNormalizer.toFloat(resampled).copyOf(expectedSamples)
         } finally {
             if (decoderStarted) runCatching { decoder?.stop() }

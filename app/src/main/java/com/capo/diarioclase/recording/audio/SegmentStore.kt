@@ -12,6 +12,8 @@ interface SegmentStore {
  suspend fun open(blockId:BlockId,ordinal:Int):OpenSegment
  suspend fun append(segment:OpenSegment,pcm:ShortArray,count:Int)
  suspend fun close(segment:OpenSegment):ReadySegment
+ /** Releases an in-flight writer after an unexpected failure without promoting its source. */
+ suspend fun abort(segment:OpenSegment) = Unit
  suspend fun repairOpenSegments():List<ReadySegment>
  suspend fun delete(segmentId:SegmentId):DeleteResult
  suspend fun exists(segmentId:SegmentId):Boolean = true

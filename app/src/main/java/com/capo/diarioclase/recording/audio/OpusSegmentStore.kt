@@ -59,12 +59,23 @@ class OpusSegmentStore(
             promote(openFile, segment.id, segment.blockId, inspected)
         }
 
+    override suspend fun abort(segment: OpenSegment) =
+        withContext(Dispatchers.IO) {
+            encoders.remove(segment.id)?.close()
+        }
+
     override suspend fun repairOpenSegments(): List<ReadySegment> =
         withContext(Dispatchers.IO) {
-            listedFiles()
+            val files = listedFiles()
+            val repaired = files
                 .filter { it.name.endsWith(".open.ogg") }
                 .sortedBy { it.name }
                 .mapNotNull { file -> repair(file) }
+            val alreadyReady = files
+                .filter { it.name.endsWith(".ready.ogg") }
+                .sortedBy { it.name }
+                .mapNotNull { file -> inspectReady(file) }
+            repaired + alreadyReady
         }
 
     override suspend fun delete(segmentId: SegmentId): DeleteResult =
@@ -93,6 +104,23 @@ class OpusSegmentStore(
         return try {
             val inspected = inspector.inspect(file)
             promote(file, identity.id, identity.blockId, inspected)
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            null
+        }
+    }
+
+    private fun inspectReady(file: File): ReadySegment? {
+        val identity = parseIdentity(file) ?: return null
+        return try {
+            val inspected = inspector.inspect(file)
+            ReadySegment(
+                id = identity.id,
+                blockId = identity.blockId,
+                path = file.absolutePath,
+                durationMs = inspected.durationMs,
+                sha256 = sha256(file),
+            )
         } catch (error: Exception) {
             if (error is CancellationException) throw error
             null
@@ -128,7 +156,10 @@ class OpusSegmentStore(
     }
 
     private fun parseIdentity(file: File): SegmentIdentity? {
-        val parts = file.name.removeSuffix(".open.ogg").split("__")
+        val stem = file.name
+            .removeSuffix(".open.ogg")
+            .removeSuffix(".ready.ogg")
+        val parts = stem.split("__")
         if (parts.size < 3) return null
         return SegmentIdentity(
             id = SegmentId(parts.last()),

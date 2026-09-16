@@ -5,6 +5,7 @@ import android.media.MediaFormat
 import android.os.Build
 import androidx.annotation.RequiresApi
 import java.io.File
+import java.nio.ByteBuffer
 
 fun interface EncodedAudioInspector {
     fun inspect(file: File): EncodedAudioInfo
@@ -23,11 +24,7 @@ class OggInspector : EncodedAudioInspector {
                     ?.equals(MediaFormat.MIMETYPE_AUDIO_OPUS, ignoreCase = true) == true
             } ?: throw IllegalStateException("El contenedor no tiene una pista Opus")
             val format = extractor.getTrackFormat(trackIndex)
-            val durationUs = if (format.containsKey(MediaFormat.KEY_DURATION)) {
-                format.getLong(MediaFormat.KEY_DURATION)
-            } else {
-                measureDurationUs(extractor, trackIndex)
-            }
+            val durationUs = measureVerifiedDurationUs(extractor, trackIndex)
             require(durationUs > 0L) { "La pista Opus no tiene duración válida" }
             EncodedAudioInfo(
                 durationMs = durationUs / 1_000L,
@@ -41,11 +38,20 @@ class OggInspector : EncodedAudioInspector {
         }
     }
 
-    private fun measureDurationUs(extractor: MediaExtractor, trackIndex: Int): Long {
+    private fun measureVerifiedDurationUs(extractor: MediaExtractor, trackIndex: Int): Long {
         extractor.selectTrack(trackIndex)
+        val packet = ByteBuffer.allocate(MAX_OPUS_PACKET_BYTES)
         var lastTimestampUs = -1L
         while (extractor.sampleTime >= 0L) {
-            lastTimestampUs = extractor.sampleTime
+            val timestampUs = extractor.sampleTime
+            require(timestampUs >= 0L && (lastTimestampUs < 0L || timestampUs > lastTimestampUs)) {
+                "La pista Opus no tiene timestamps estrictamente crecientes"
+            }
+            packet.clear()
+            require(extractor.readSampleData(packet, 0) > 0) {
+                "La pista Opus contiene un paquete vacío o ilegible"
+            }
+            lastTimestampUs = timestampUs
             if (!extractor.advance()) break
         }
         return if (lastTimestampUs < 0L) 0L else lastTimestampUs + OPUS_FRAME_DURATION_US
@@ -53,5 +59,6 @@ class OggInspector : EncodedAudioInspector {
 
     private companion object {
         const val OPUS_FRAME_DURATION_US = 20_000L
+        const val MAX_OPUS_PACKET_BYTES = 64 * 1024
     }
 }

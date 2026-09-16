@@ -65,16 +65,16 @@ Finalizar la jornada y transcribirla localmente. Registrar duración de transcri
 - números y nombres propios;
 - ausencia de envío remoto del audio.
 
-Comparar además el mismo fragmento de clase guardado en WAV PCM16 y en OGG/Opus a 40 kbit/s. Anotar diferencias de palabras y de cada campo pedagógico. La aceptación requiere que no exista una pérdida pedagógicamente significativa frente al WAV.
+Comparar además el mismo fragmento de clase guardado en WAV PCM16 y en OGG/Opus a 32, 40 y 48 kbit/s. Anotar diferencias de palabras y de cada campo pedagógico. La aceptación requiere que no exista una pérdida pedagógicamente significativa frente al WAV; mantener 40 kbit/s salvo que 48 kbit/s corrija un error observado y documentado.
 
-| Comparación | WAV | OGG/Opus | Diferencia relevante |
-|---|---|---|---|
-| Duración del audio |  |  |  |
-| Tamaño |  |  |  |
-| Duración de transcripción |  |  |  |
-| Palabras/números/nombres |  |  |  |
-| Páginas y ejercicios |  |  |  |
-| Tarea |  |  |  |
+| Comparación | WAV | Opus 32 | Opus 40 | Opus 48 | Diferencia relevante |
+|---|---|---|---|---|---|
+| Duración del audio |  |  |  |  |  |
+| Tamaño |  |  |  |  |  |
+| Duración de transcripción |  |  |  |  |  |
+| Palabras/números/nombres |  |  |  |  |  |
+| Páginas y ejercicios |  |  |  |  |  |
+| Tarea |  |  |  |  |  |
 
 ## Compatibilidad y limpieza
 

@@ -21,6 +21,9 @@ class LegacyCompatibleSegmentStore(
     override suspend fun close(segment: OpenSegment): ReadySegment =
         primary.close(segment)
 
+    override suspend fun abort(segment: OpenSegment) =
+        primary.abort(segment)
+
     override suspend fun repairOpenSegments(): List<ReadySegment> =
         legacy.repairOpenSegments() + primary.repairOpenSegments()
 

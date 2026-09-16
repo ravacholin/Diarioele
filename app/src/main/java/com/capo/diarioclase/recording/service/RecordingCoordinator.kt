@@ -22,6 +22,8 @@ class RecordingCoordinator(private val sessions:SessionRepository,private val se
      if(currentSamples==maxSegmentSamples){segments.close(current);current=null;currentSamples=0;ordinal++}
     }
    }
+  } catch(cancelled:CancellationException){throw cancelled
+  } catch(error:Throwable){withContext(NonCancellable){current?.let{segment->runCatching{segments.abort(segment)}.exceptionOrNull()?.let(error::addSuppressed)}};current=null;throw error
   } finally {withContext(NonCancellable){current?.let{segments.close(it)}}}
  }
 }

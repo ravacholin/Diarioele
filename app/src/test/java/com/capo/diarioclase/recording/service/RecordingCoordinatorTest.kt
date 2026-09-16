@@ -47,7 +47,7 @@ private class FiniteSource(private var remaining:Int):PcmSource{
  override fun close(){}
 }
 private class HoldingSource:PcmSource{private var first=true;override suspend fun read(target:ShortArray):Int{if(first){first=false;return target.size};awaitCancellation()};override fun close(){}}
-private class FailingSource:PcmSource{override suspend fun read(target:ShortArray):Int=error("Lectura fallida");override fun close(){}}
+private class FailingSource:PcmSource{private var first=true;override suspend fun read(target:ShortArray):Int{if(first){first=false;return target.size};error("Lectura fallida")};override fun close(){}}
 private class MemorySegments:SegmentStore{
  var open=false;var aborted=false;val closedDurations=mutableListOf<Long>();private val counts=mutableMapOf<String,Int>()
  override suspend fun open(blockId:BlockId,ordinal:Int):OpenSegment{open=true;val id=SegmentId("seg-$ordinal");counts[id.value]=0;return OpenSegment(id,blockId,File("$ordinal.open.wav").path)}
