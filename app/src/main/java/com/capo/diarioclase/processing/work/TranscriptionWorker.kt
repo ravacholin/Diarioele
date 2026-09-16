@@ -29,6 +29,23 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 
+/**
+ * Título de la notificación según la fase (Fase 6, Q5): mientras se confirma audio,
+ * "TRANSCRIBIENDO EN ESPAÑOL"; cuando ya está todo transcripto y el worker sigue trabajando
+ * (generando la ficha por interpretación), "GENERANDO LA FICHA", nunca "TRANSCRIBIENDO".
+ * Función pura para poder probarla sin WorkManager.
+ */
+internal fun transcriptionNotificationTitle(progress: TranscriptionProgress?): String =
+    if (progress != null &&
+        progress.totalMs > 0L &&
+        progress.processedMs >= progress.totalMs &&
+        progress.state == TranscriptionRunState.PROCESSING
+    ) {
+        "GENERANDO LA FICHA"
+    } else {
+        "TRANSCRIBIENDO EN ESPAÑOL"
+    }
+
 class TranscriptionWorker(
     appContext: Context,
     parameters: WorkerParameters,
@@ -99,7 +116,7 @@ class TranscriptionWorker(
         )
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher)
-            .setContentTitle("TRANSCRIBIENDO EN ESPAÑOL")
+            .setContentTitle(transcriptionNotificationTitle(progress))
             .setContentText(
                 if (progress == null) "Preparando el motor local"
                 else percent.toString() + "% confirmado",

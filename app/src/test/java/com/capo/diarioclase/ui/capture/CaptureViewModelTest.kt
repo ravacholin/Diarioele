@@ -155,6 +155,29 @@ class CaptureViewModelTest {
   val vm=CaptureViewModel(UiSessions(null,report),UiActions(),backgroundScope);runCurrent()
   assertEquals("Este teléfono no admite desgrabar el audio guardado con el motor local. El audio sigue seguro",vm.state.value.message)
  }
+ @Test fun `interpretation progress is visible and sanitized`()=runTest{
+  val report=RecordingReport(SessionId("s"),"2026-09-11",emptyList(),SessionState.EXTRACTING)
+  val progress=MutableStateFlow<TranscriptionProgress?>(TranscriptionProgress(SessionId("s"),60_000,60_000,0,0,0,TranscriptionRunState.PROCESSING,null))
+  val interp=MutableStateFlow<InterpretationProgressUi?>(null)
+  val vm=CaptureViewModel(UiSessions(null,report),UiActions(),backgroundScope,semanticRuns=flowOf(null),interpretations=interp,observeProgress={progress});runCurrent()
+  interp.value=InterpretationProgressUi(packet=2,totalPackets=4,provider=com.capo.diarioclase.processing.semantic.InferenceProvider.GROQ,attempt=1,cacheHit=false,elapsedMs=1_200,provenance="MIXTO",canRetry=true,canContinueLocal=true);runCurrent()
+  assertEquals(2,vm.state.value.interpretation!!.packet)
+  assertEquals(com.capo.diarioclase.processing.semantic.InferenceProvider.GROQ,vm.state.value.interpretation!!.provider)
+  // El progreso de interpretación nunca filtra credenciales ni texto de transcripción.
+  val interpText=vm.state.value.interpretation.toString()
+  assertFalse(vm.state.value.toString().contains("gsk_"))
+  assertFalse(interpText.contains("gsk_"))
+  assertFalse(interpText.contains("Página"))
+ }
+ @Test fun `retry interpretation reuses the session without leaving processing`()=runTest{
+  val report=RecordingReport(SessionId("s"),"2026-09-11",emptyList(),SessionState.EXTRACTING)
+  val progress=MutableStateFlow<TranscriptionProgress?>(TranscriptionProgress(SessionId("s"),60_000,60_000,0,0,0,TranscriptionRunState.PROCESSING,null))
+  var retriedId:SessionId?=null;var retriedMode:InterpretationMode?=null
+  val actions=object:CaptureActions by UiActions(){override suspend fun retryInterpretation(id:SessionId,mode:InterpretationMode){retriedId=id;retriedMode=mode}}
+  val vm=CaptureViewModel(UiSessions(null,report),actions,backgroundScope,observeProgress={progress});runCurrent()
+  vm.onRetryInterpretation(InterpretationMode.BALANCED);runCurrent()
+  assertEquals(SessionId("s"),retriedId);assertEquals(InterpretationMode.BALANCED,retriedMode)
+ }
  @Test fun `claim review records the decision without scheduling work`()=runTest{
   val actions=UiActions();val vm=reviewViewModel(actions,backgroundScope);runCurrent()
   vm.acceptClaim("c1");vm.rejectClaim("c2");vm.correctClaim("c3","página 12");vm.correctClaim("c4","");runCurrent()
