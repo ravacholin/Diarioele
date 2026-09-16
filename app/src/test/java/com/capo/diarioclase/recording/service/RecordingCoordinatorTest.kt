@@ -37,9 +37,9 @@ class RecordingCoordinatorTest {
   assertEquals("Micrófono no disponible",failure?.message);assertEquals(BlockCloseReason.INTERRUPTED,sessions.lastCloseReason)
  }
  @Test fun `microphone read failure closes block and stops service`()=runTest{
-  val sessions=FakeSessions();var stopped=false;val coordinator=RecordingCoordinator(sessions,MemorySegments(),{FailingSource()},Clock{0},this){stopped=true}
+  val sessions=FakeSessions();val store=MemorySegments();var stopped=false;val coordinator=RecordingCoordinator(sessions,store,{FailingSource()},Clock{0},this){stopped=true}
   coordinator.start(SessionId("s"));runCurrent()
-  assertEquals(BlockCloseReason.INTERRUPTED,sessions.lastCloseReason);assertTrue(stopped)
+  assertEquals(BlockCloseReason.INTERRUPTED,sessions.lastCloseReason);assertTrue(store.aborted);assertTrue(stopped)
  }
 }
 private class FiniteSource(private var remaining:Int):PcmSource{
@@ -49,10 +49,11 @@ private class FiniteSource(private var remaining:Int):PcmSource{
 private class HoldingSource:PcmSource{private var first=true;override suspend fun read(target:ShortArray):Int{if(first){first=false;return target.size};awaitCancellation()};override fun close(){}}
 private class FailingSource:PcmSource{override suspend fun read(target:ShortArray):Int=error("Lectura fallida");override fun close(){}}
 private class MemorySegments:SegmentStore{
- var open=false;val closedDurations=mutableListOf<Long>();private val counts=mutableMapOf<String,Int>()
+ var open=false;var aborted=false;val closedDurations=mutableListOf<Long>();private val counts=mutableMapOf<String,Int>()
  override suspend fun open(blockId:BlockId,ordinal:Int):OpenSegment{open=true;val id=SegmentId("seg-$ordinal");counts[id.value]=0;return OpenSegment(id,blockId,File("$ordinal.open.wav").path)}
  override suspend fun append(segment:OpenSegment,pcm:ShortArray,count:Int){counts[segment.id.value]=counts.getValue(segment.id.value)+count}
  override suspend fun close(segment:OpenSegment):ReadySegment{open=false;val d=counts.getValue(segment.id.value)*1_000L/16_000;closedDurations+=d;return ReadySegment(segment.id,segment.blockId,"ready",d,"hash")}
+ override suspend fun abort(segment:OpenSegment){aborted=true;open=false}
  override suspend fun repairOpenSegments()=emptyList<ReadySegment>();override suspend fun delete(segmentId:SegmentId)=DeleteResult.Deleted
 }
 private class FakeSessions:SessionRepository{
