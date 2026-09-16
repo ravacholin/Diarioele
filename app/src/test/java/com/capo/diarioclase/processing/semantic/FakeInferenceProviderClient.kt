@@ -31,6 +31,9 @@ class FakeInferenceProviderClient(
     /** Requests recibidos, en orden. */
     val requests = mutableListOf<InterpretationRequest>()
 
+    /** Contextos de intento recibidos, en orden (inicial vs. reintento correctivo). */
+    val attemptContexts = mutableListOf<InferenceAttemptContext>()
+
     /** Cantidad de veces que se recibió una credencial (nunca su valor). */
     var credentialsSeen = 0
         private set
@@ -40,9 +43,11 @@ class FakeInferenceProviderClient(
     override suspend fun infer(
         request: InterpretationRequest,
         credential: EphemeralCredential,
+        attempt: InferenceAttemptContext,
     ): ProviderOutcome {
         requests += request
         credentialsSeen++
+        attemptContexts += attempt
         val outcome = queue.removeFirstOrNull()
             ?: lastServed
             ?: ProviderOutcome.Failure(provider, ProviderFailure.INTERNAL, retryable = false)

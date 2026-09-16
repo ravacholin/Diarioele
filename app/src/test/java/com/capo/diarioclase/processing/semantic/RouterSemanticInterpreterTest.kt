@@ -103,9 +103,15 @@ class RouterSemanticInterpreterTest {
     fun `session deadline falls back locally without throwing and stays within budget`() = runTest {
         // Un proveedor que nunca responde dentro del presupuesto: el paquete se cancela y cae
         // al fallback local, sin propagar la cancelación como falla de transcripción.
-        val slow = InferenceProviderClient { _, _ ->
-            delay(10 * 60_000L)
-            FakeInferenceProviderClient.success(InferenceProvider.GEMINI, validJson)
+        val slow = object : InferenceProviderClient {
+            override suspend fun infer(
+                request: InterpretationRequest,
+                credential: EphemeralCredential,
+                attempt: InferenceAttemptContext,
+            ): ProviderOutcome {
+                delay(10 * 60_000L)
+                return FakeInferenceProviderClient.success(InferenceProvider.GEMINI, validJson)
+            }
         }
 
         val outcome = interpreterWith(mapOf(InferenceProvider.GEMINI to slow))

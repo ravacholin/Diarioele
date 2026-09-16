@@ -12,10 +12,14 @@ package com.capo.diarioclase.processing.semantic
  * - `infer` nunca lanza por una falla del proveedor: devuelve [ProviderOutcome.Failure].
  * - La credencial no se guarda ni se registra en logs, excepciones o resultados.
  * - No se envía audio, rutas ni ids internos: solo lo que contiene [InterpretationRequest].
+ * - El [attempt] distingue el intento inicial del único reintento correctivo del quality
+ *   loop (Fase 6). Solo transporta códigos de issue seguros, nunca cuerpos ni transcripción.
+ *   Tiene un valor por defecto para migrar a los llamadores sin romperlos; Q2 lo usa de verdad.
  */
-fun interface InferenceProviderClient {
+interface InferenceProviderClient {
     suspend fun infer(
         request: InterpretationRequest,
         credential: EphemeralCredential,
+        attempt: InferenceAttemptContext = InferenceAttemptContext.initial(),
     ): ProviderOutcome
 }
