@@ -1,3 +1,4 @@
+ 1 file changed, 1 insertion(+)
 package com.capo.diarioclase.recording.audio
 
 import com.capo.diarioclase.data.db.BlockId
@@ -62,6 +63,7 @@ class OpusSegmentStore(
     override suspend fun abort(segment: OpenSegment) =
         withContext(Dispatchers.IO) {
             encoders.remove(segment.id)?.close()
+            Unit
         }
 
     override suspend fun repairOpenSegments(): List<ReadySegment> =
