@@ -25,7 +25,9 @@ class AndroidOpusEncoderTest {
             val pcm = twoTonePcm(durationSeconds = 3, sampleRate = config.sampleRate)
             var offset = 0
             while (offset < pcm.size) {
-                val count = minOf(960, pcm.size - offset)
+                // AudioRecord uses this exact read size in production. It is not an
+                // Opus frame boundary, so the encoder must reframe it internally.
+                val count = minOf(4_096, pcm.size - offset)
                 encoder.append(pcm.copyOfRange(offset, offset + count), count)
                 offset += count
             }

@@ -2,6 +2,8 @@ package com.capo.diarioclase.recording.audio
 
 import com.capo.diarioclase.processing.transcription.AudioWindowReader
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Rule
 import org.junit.Test
@@ -27,17 +29,27 @@ class RecordingComponentFactoryTest {
     }
 
     @Test
-    fun `supported Opus capability allows recording`() {
-        var encoderCreated = false
-        factory(
+    fun `supported Opus capability verifies a complete encoded file once`() {
+        var encoderCreated = 0
+        var inspected = 0
+        val factory = factory(
             capability = AudioCapability.Supported,
             encoderFactory = StreamingAudioEncoderFactory { output, _ ->
-                encoderCreated = true
+                encoderCreated++
                 ProbeEncoder(output)
             },
-        ).requireOpusSupport()
+            inspector = EncodedAudioInspector {
+                inspected++
+                EncodedAudioInfo(100, 16_000, 1, "audio/opus")
+            },
+        )
 
-        assertEquals(true, encoderCreated)
+        factory.requireOpusSupport()
+        factory.requireOpusSupport()
+
+        assertEquals(1, encoderCreated)
+        assertEquals(1, inspected)
+        assertFalse(folder.root.listFiles().orEmpty().any { it.name.startsWith(".opus-capability-") })
     }
 
     @Test
@@ -55,27 +67,62 @@ class RecordingComponentFactoryTest {
         }
     }
 
+    @Test
+    fun `encoder finalization failure is reported before a recording starts`() {
+        val factory = factory(
+            capability = AudioCapability.Supported,
+            encoderFactory = StreamingAudioEncoderFactory { output, _ ->
+                object : StreamingAudioEncoder {
+                    init { output.writeBytes(byteArrayOf(1)) }
+                    override fun append(pcm: ShortArray, count: Int) = Unit
+                    override fun finish(): EncodedAudioInfo = error("No se pudo cerrar OGG")
+                    override fun close() = Unit
+                }
+            },
+        )
+
+        try {
+            factory.requireOpusSupport()
+            fail("La prueba debía validar también el cierre del contenedor")
+        } catch (expected: UnsupportedAudioCapabilityException) {
+            assertEquals(AudioCapabilityReason.CODEC_QUERY_FAILED, expected.reason)
+        }
+    }
+
     private fun factory(
         capability: AudioCapability,
         encoderFactory: StreamingAudioEncoderFactory = StreamingAudioEncoderFactory { output, _ ->
             ProbeEncoder(output)
         },
+        inspector: EncodedAudioInspector = EncodedAudioInspector {
+            EncodedAudioInfo(100, 16_000, 1, "audio/opus")
+        },
     ) = RecordingComponentFactory(
         root = folder.root,
         capabilityProbe = AudioCapabilityProbe { capability },
         encoderFactory = encoderFactory,
-        inspector = EncodedAudioInspector { error("unused") },
+        inspector = inspector,
         wavReader = AudioWindowReader { _, _ -> error("unused") },
         oggReader = AudioWindowReader { _, _ -> error("unused") },
     )
 }
 
 private class ProbeEncoder(output: File) : StreamingAudioEncoder {
+    private val output = output
+    private var appended = false
+
     init {
         output.writeBytes(byteArrayOf(1))
     }
 
-    override fun append(pcm: ShortArray, count: Int) = Unit
-    override fun finish() = EncodedAudioInfo(1, 16_000, 1, "audio/opus")
+    override fun append(pcm: ShortArray, count: Int) {
+        appended = count > 0
+    }
+
+    override fun finish(): EncodedAudioInfo {
+        assertTrue(appended)
+        assertTrue(output.length() > 0)
+        return EncodedAudioInfo(100, 16_000, 1, "audio/opus")
+    }
     override fun close() = Unit
 }

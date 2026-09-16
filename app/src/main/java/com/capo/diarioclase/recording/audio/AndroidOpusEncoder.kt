@@ -19,10 +19,12 @@ class AndroidOpusEncoder(
     private val codec: MediaCodec
     private val muxer: MediaMuxer
     private val bufferInfo = MediaCodec.BufferInfo()
+    private val framer = OpusPcmFramer(config.sampleRate)
 
     private var muxerTrackIndex = -1
     private var muxerStarted = false
     private var acceptedSamples = 0L
+    private var queuedSamples = 0L
     private var released = false
     private var finishedInfo: EncodedAudioInfo? = null
 
@@ -41,7 +43,10 @@ class AndroidOpusEncoder(
             config.channelCount,
         ).apply {
             setInteger(MediaFormat.KEY_BIT_RATE, config.bitRate)
-            setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, MAX_INPUT_BYTES)
+            setInteger(
+                MediaFormat.KEY_MAX_INPUT_SIZE,
+                config.sampleRate / OPUS_FRAMES_PER_SECOND * Short.SIZE_BYTES,
+            )
             setInteger(MediaFormat.KEY_PCM_ENCODING, android.media.AudioFormat.ENCODING_PCM_16BIT)
         }
         val codecName = MediaCodecList(MediaCodecList.REGULAR_CODECS)
@@ -74,28 +79,8 @@ class AndroidOpusEncoder(
         checkOpen()
         require(count in 0..pcm.size)
 
-        var offset = 0
-        while (offset < count) {
-            val inputIndex = awaitInputBuffer()
-            val inputBuffer = codec.getInputBuffer(inputIndex)
-                ?: throw IllegalStateException("El encoder Opus no entregó el buffer de entrada")
-            inputBuffer.clear()
-            inputBuffer.order(ByteOrder.nativeOrder())
-            val sampleCount = minOf(count - offset, inputBuffer.remaining() / Short.SIZE_BYTES)
-            check(sampleCount > 0) { "El buffer de entrada Opus no admite una muestra PCM16" }
-            inputBuffer.asShortBuffer().put(pcm, offset, sampleCount)
-            val presentationTimeUs = samplesToMicros(acceptedSamples)
-            codec.queueInputBuffer(
-                inputIndex,
-                0,
-                sampleCount * Short.SIZE_BYTES,
-                presentationTimeUs,
-                0,
-            )
-            acceptedSamples += sampleCount
-            offset += sampleCount
-            drain(endOfStream = false)
-        }
+        acceptedSamples += count
+        framer.append(pcm, 0, count, ::queuePcmFrame)
     }
 
     @Synchronized
@@ -104,6 +89,7 @@ class AndroidOpusEncoder(
         checkOpen()
 
         return try {
+            framer.finish(::queuePcmFrame)
             queueEndOfStream()
             drain(endOfStream = true)
             check(muxerStarted) { "El encoder Opus no produjo un formato de salida" }
@@ -143,9 +129,31 @@ class AndroidOpusEncoder(
             inputIndex,
             0,
             0,
-            samplesToMicros(acceptedSamples),
+            samplesToMicros(queuedSamples),
             MediaCodec.BUFFER_FLAG_END_OF_STREAM,
         )
+    }
+
+    private fun queuePcmFrame(frame: ShortArray) {
+        val inputIndex = awaitInputBuffer()
+        val inputBuffer = codec.getInputBuffer(inputIndex)
+            ?: throw IllegalStateException("El encoder Opus no entregó el buffer de entrada")
+        inputBuffer.clear()
+        inputBuffer.order(ByteOrder.LITTLE_ENDIAN)
+        val requiredBytes = frame.size * Short.SIZE_BYTES
+        check(inputBuffer.remaining() >= requiredBytes) {
+            "El buffer de entrada Opus es menor que un cuadro de 20 ms"
+        }
+        inputBuffer.asShortBuffer().put(frame)
+        codec.queueInputBuffer(
+            inputIndex,
+            0,
+            requiredBytes,
+            samplesToMicros(queuedSamples),
+            0,
+        )
+        queuedSamples += frame.size
+        drain(endOfStream = false)
     }
 
     private fun drain(endOfStream: Boolean) {
@@ -207,7 +215,7 @@ class AndroidOpusEncoder(
     }
 
     private companion object {
-        const val MAX_INPUT_BYTES = 8_192
+        const val OPUS_FRAMES_PER_SECOND = 50
         const val CODEC_TIMEOUT_US = 10_000L
         val CODEC_DEADLINE_NS: Long = TimeUnit.SECONDS.toNanos(10)
     }
