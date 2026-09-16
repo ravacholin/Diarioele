@@ -76,7 +76,13 @@ import kotlinx.coroutines.flow.Flow
  @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun insertClaimSupersessions(rows:List<ClaimSupersessionEntity>)
  @Query("SELECT oldClaimId FROM claim_supersessions WHERE newClaimId=:claimId ORDER BY oldClaimId") suspend fun claimSupersessions(claimId:String):List<String>
  @Query("SELECT * FROM evidence_claims WHERE runId=:runId ORDER BY claimOrdinal,id") suspend fun claimsForRun(runId:String):List<EvidenceClaimEntity>
+ @Query("DELETE FROM claim_evidence WHERE claimId IN (SELECT id FROM evidence_claims WHERE sessionId=:sessionId)") suspend fun deleteClaimEvidenceForSession(sessionId:String)
+ @Query("DELETE FROM claim_supersessions WHERE newClaimId IN (SELECT id FROM evidence_claims WHERE sessionId=:sessionId)") suspend fun deleteClaimSupersessionsForSession(sessionId:String)
+ @Query("SELECT * FROM transcript_spans WHERE id IN (:ids)") suspend fun spansByIds(ids:List<String>):List<TranscriptSpanEntity>
+ @Query("SELECT * FROM interpretation_runs WHERE sessionId=:sessionId ORDER BY startedAtEpochMs DESC LIMIT 1") fun observeLatestRun(sessionId:String):Flow<InterpretationRunEntity?>
+ @Query("SELECT * FROM interpretation_runs ORDER BY startedAtEpochMs DESC LIMIT 1") fun observeLatestRunAny():Flow<InterpretationRunEntity?>
  @Query("UPDATE sessions SET state=:state,updatedAtEpochMs=:nowEpochMs WHERE id=:sessionId") suspend fun updateSessionStateUnchecked(sessionId:String,state:String,nowEpochMs:Long)
  @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun saveSetting(setting:AppSettingEntity)
  @Query("SELECT COALESCE((SELECT value FROM app_settings WHERE key='interpretation_mode' LIMIT 1),'CONSERVATIVE')") fun observeInterpretationMode():Flow<String>
+ @Query("SELECT value FROM app_settings WHERE key='prefer_local_interpretation' LIMIT 1") suspend fun preferLocalInterpretation():String?
 }

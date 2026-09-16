@@ -4,6 +4,8 @@ import androidx.room.withTransaction
 import com.capo.diarioclase.core.clock.Clock
 import com.capo.diarioclase.data.db.AudioSegmentEntity
 import com.capo.diarioclase.data.db.BlockId
+import com.capo.diarioclase.data.db.ClaimEvidenceEntity
+import com.capo.diarioclase.data.db.ClaimSupersessionEntity
 import com.capo.diarioclase.data.db.DiaryDraftEntity
 import com.capo.diarioclase.data.db.DiarioDatabase
 import com.capo.diarioclase.data.db.EvidenceClaimEntity
@@ -33,8 +35,44 @@ class RoomProcessingStore(
 ) : ProcessingStore, LocalReprojectionStore {
     private val dao = database.sessions()
 
-    override suspend fun persistedClaims(sessionId: SessionId): List<EvidenceClaim> =
-        dao.claimsSnapshot(sessionId.value).map { it.toDomain() }
+    override suspend fun persistedClaims(sessionId: SessionId): List<EvidenceClaim> = database.withTransaction {
+        val rows = dao.claimsSnapshot(sessionId.value)
+        val claims = ArrayList<EvidenceClaim>(rows.size)
+        for (row in rows) {
+            val evidenceRows = dao.claimEvidence(row.id)
+            val spans = if (evidenceRows.isNotEmpty()) {
+                dao.spansByIds(evidenceRows.map { it.transcriptSpanId }).associateBy { it.id }
+            } else {
+                emptyMap()
+            }
+            // Rehidrata la evidencia completa desde los spans de transcripción reales; mientras
+            // la sesión no se aprobó, siguen disponibles y por eso reabrir conserva las evidencias.
+            val evidences = evidenceRows.mapNotNull { evidence ->
+                spans[evidence.transcriptSpanId]?.let { span ->
+                    EvidenceRef(
+                        blockId = BlockId(span.blockId),
+                        startMs = span.startMs,
+                        endMs = span.endMs,
+                        excerpt = span.text,
+                        contextual = evidence.contextual,
+                    )
+                }
+            }
+            val base = row.toDomain()
+            claims += base.copy(
+                evidences = evidences.ifEmpty { listOf(base.evidence) },
+                transcriptSpanIds = evidenceRows.map { it.transcriptSpanId },
+                supersedesClaimKeys = dao.claimSupersessions(row.id),
+            )
+        }
+        claims
+    }
+
+    fun observeInterpretationRun(sessionId: String): Flow<com.capo.diarioclase.data.db.InterpretationRunEntity?> =
+        dao.observeLatestRun(sessionId)
+
+    fun observeLatestInterpretationRun(): Flow<com.capo.diarioclase.data.db.InterpretationRunEntity?> =
+        dao.observeLatestRunAny()
 
     /**
      * Guarda la ficha reproyectada respetando una edición previa del docente: si la ficha
@@ -167,6 +205,8 @@ class RoomProcessingStore(
         draft: DiaryDraft,
     ) = database.withTransaction {
         val existingDraft = dao.draft(id.value)
+        dao.deleteClaimEvidenceForSession(id.value)
+        dao.deleteClaimSupersessionsForSession(id.value)
         dao.deleteMachineClaims(id.value)
         dao.insertClaims(
             claims.map {
@@ -193,6 +233,27 @@ class RoomProcessingStore(
                 )
             },
         )
+        // Persiste el grafo normalizado: evidencia resuelta a spans reales y supersesiones.
+        // Así reabrir la sesión conserva la evidencia múltiple y las correcciones.
+        claims.forEach { claim ->
+            if (claim.transcriptSpanIds.isNotEmpty()) {
+                dao.insertClaimEvidence(
+                    claim.transcriptSpanIds.mapIndexed { index, spanId ->
+                        ClaimEvidenceEntity(
+                            claimId = claim.id,
+                            transcriptSpanId = spanId,
+                            ordinal = index,
+                            contextual = claim.evidences.getOrNull(index)?.contextual ?: false,
+                        )
+                    },
+                )
+            }
+            if (claim.supersedesClaimKeys.isNotEmpty()) {
+                dao.insertClaimSupersessions(
+                    claim.supersedesClaimKeys.map { old -> ClaimSupersessionEntity(claim.id, old) },
+                )
+            }
+        }
         val fields = existingDraft?.takeIf { it.userEdited }
         dao.saveDraft(
             DiaryDraftEntity(
