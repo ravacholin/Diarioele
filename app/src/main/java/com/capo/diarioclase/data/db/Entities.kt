@@ -154,6 +154,50 @@ data class DiaryDraftEntity(
     val homework: String,
     val updatedAtEpochMs: Long,
     val userEdited: Boolean = false,
+    // Máscara de edición por campo (Fase 6, Q4). `userEdited` se conserva como bandera global
+    // legacy; la máscara permite proteger solo el campo que el docente tocó.
+    val editedTopics: Boolean = false,
+    val editedActivities: Boolean = false,
+    val editedPages: Boolean = false,
+    val editedExercises: Boolean = false,
+    val editedHomework: Boolean = false,
+)
+
+/** Acción de revisión del docente sobre un claim (Fase 6, Q4). */
+enum class ReviewAction { ACCEPT, REJECT, CORRECT }
+
+/** Revisión de campo/claim en el dominio (Fase 6, Q4). */
+data class DraftFieldRevision(
+    val id: String,
+    val sessionId: String,
+    val field: String,
+    val beforeValue: String,
+    val afterValue: String,
+    val actor: String,
+    val action: ReviewAction,
+    val claimId: String?,
+    val createdAtEpochMs: Long,
+)
+
+/**
+ * Historial normalizado de revisiones de campos y claims (Fase 6, Q4). Registra cada edición
+ * o decisión (aceptar/rechazar/corregir) antes de actualizar la ficha, con el valor previo y
+ * el nuevo, para poder auditar y evaluar prompts sin volver a la red.
+ */
+@Entity(
+    tableName = "draft_field_revisions",
+    indices = [Index("sessionId"), Index("claimId")],
+)
+data class DraftFieldRevisionEntity(
+    @PrimaryKey val id: String,
+    val sessionId: String,
+    val field: String,
+    val beforeValue: String,
+    val afterValue: String,
+    val actor: String,
+    val action: String,
+    val claimId: String?,
+    val createdAtEpochMs: Long,
 )
 
 @Entity(tableName = "diary_entries", indices = [Index(value = ["sessionId"], unique = true)])
