@@ -20,7 +20,8 @@ class OpusPcmFramerTest {
 
         assertEquals(26, frames.size)
         assertTrue(frames.all { it.size == 320 })
-        assertEquals(input.toList(), frames.flatten().take(input.size))
-        assertTrue(frames.flatten().drop(input.size).all { it == 0.toShort() })
+        val output = frames.flatMap { frame -> frame.toList() }
+        assertEquals(input.toList(), output.take(input.size))
+        assertTrue(output.drop(input.size).all { it == 0.toShort() })
     }
 }
