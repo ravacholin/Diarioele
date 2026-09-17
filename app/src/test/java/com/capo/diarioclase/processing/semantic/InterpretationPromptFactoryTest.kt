@@ -121,9 +121,17 @@ class InterpretationPromptFactoryTest {
         listOf(
             "claim_key", "category", "value", "normalized_value",
             "status", "confidence", "evidence_span_ids", "supersedes_claim_keys",
-            "evidence_quote",
+            "evidence_quote", "reason", "summary",
         ).forEach { assertTrue("falta campo $it en el esquema", schema.contains(it)) }
         assertTrue(schema.contains("\"additionalProperties\": false"))
+    }
+
+    @Test
+    fun `system instruction asks for reason and a class summary`() {
+        val system = factory.create(request()).systemInstruction
+        assertTrue(system.contains("reason"))
+        assertTrue(system.contains("summary"))
+        assertTrue(system.lowercase().contains("resumen"))
     }
 
     @Test

@@ -184,5 +184,6 @@ class HybridClaimMerger(
         claimOrdinal = claimOrdinal,
         provenance = provenance,
         evidenceQuote = evidenceQuote,
+        reason = reason,
     )
 }

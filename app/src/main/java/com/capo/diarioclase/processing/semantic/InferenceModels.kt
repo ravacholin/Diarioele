@@ -163,6 +163,8 @@ data class ProviderSemanticClaim(
     val evidenceSpanIds: List<String>,
     val supersedesClaimKeys: List<String>,
     val evidenceQuote: String? = null,
+    // Justificación breve del claim (Nivel 3), para mostrar al tocar el elemento. Opcional.
+    val reason: String? = null,
 )
 
 /** Identidad pública artificial de un span: `B<bloque>-S<span>`. */
@@ -256,9 +258,10 @@ object ProviderClaimsCodec {
             obj.put("confidence", claim.confidence)
             obj.put("evidence_span_ids", JSONArray(claim.evidenceSpanIds))
             obj.put("supersedes_claim_keys", JSONArray(claim.supersedesClaimKeys))
-            // Campo opcional: solo se emite cuando el claim lo trae, para no alterar el
-            // round-trip de los claims que no lo usan.
+            // Campos opcionales: solo se emiten cuando el claim los trae, para no alterar el
+            // round-trip de los claims que no los usan.
             claim.evidenceQuote?.let { obj.put("evidence_quote", it) }
+            claim.reason?.let { obj.put("reason", it) }
             array.put(obj)
         }
         return JSONObject().put("claims", array).toString()
@@ -296,7 +299,19 @@ object ProviderClaimsCodec {
         evidenceSpanIds = requireStringList("evidence_span_ids", index),
         supersedesClaimKeys = requireStringList("supersedes_claim_keys", index),
         evidenceQuote = optionalString("evidence_quote"),
+        reason = optionalString("reason"),
     )
+
+    /** Resumen opcional de la clase, a nivel raíz de la respuesta (Nivel 3). Blank → null. */
+    fun summaryOf(rawJson: String): String? {
+        val root = try {
+            JSONObject(rawJson)
+        } catch (e: JSONException) {
+            return null
+        }
+        if (!root.has("summary") || root.isNull("summary")) return null
+        return (root.get("summary") as? String)?.trim()?.takeIf { it.isNotEmpty() }
+    }
 
     /** Lee un texto opcional: ausente, nulo o no-texto → null, sin romper el parsing. */
     private fun JSONObject.optionalString(key: String): String? {

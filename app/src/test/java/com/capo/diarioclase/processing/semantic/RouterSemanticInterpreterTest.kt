@@ -87,6 +87,23 @@ class RouterSemanticInterpreterTest {
     }
 
     @Test
+    fun `remote summary flows into the interpretation outcome`() = runTest {
+        val jsonWithSummary =
+            """{"summary":"Vimos la página 42.","claims":[{"claim_key":"B1-C1","category":"PAGE",""" +
+                """"value":"42","normalized_value":"42","status":"PERFORMED","confidence":0.95,""" +
+                """"evidence_span_ids":["B1-S1"],"supersedes_claim_keys":[]}]}"""
+        val gemini = FakeInferenceProviderClient(
+            InferenceProvider.GEMINI,
+            FakeInferenceProviderClient.success(InferenceProvider.GEMINI, jsonWithSummary),
+        )
+        val outcome = interpreter(
+            clients = mapOf(InferenceProvider.GEMINI to gemini),
+            providers = listOf(ProviderModel(InferenceProvider.GEMINI, "gemini-free")),
+        ).interpret(SessionId("s"), spans)
+        assertEquals("Vimos la página 42.", outcome.summary)
+    }
+
+    @Test
     fun `a valid gemini response yields remote claims`() = runTest {
         val validJson = ProviderClaimsCodec.encode(
             listOf(ProviderSemanticClaim("B1-C1", "PAGE", "42", "42", "PERFORMED", 0.95, listOf("B1-S1"), emptyList())),

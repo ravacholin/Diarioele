@@ -26,7 +26,8 @@ class SemanticResponseValidatorTest {
         evidence: List<String> = listOf("B1-S1"),
         supersedes: List<String> = emptyList(),
         evidenceQuote: String? = null,
-    ) = ProviderSemanticClaim(key, category, value, normalized, status, confidence, evidence, supersedes, evidenceQuote)
+        reason: String? = null,
+    ) = ProviderSemanticClaim(key, category, value, normalized, status, confidence, evidence, supersedes, evidenceQuote, reason)
 
     private fun json(vararg claims: ProviderSemanticClaim) = ProviderClaimsCodec.encode(claims.toList())
 
@@ -68,6 +69,19 @@ class SemanticResponseValidatorTest {
     fun `an absent evidence quote decodes and validates as null`() {
         val outcome = validate(json(claim()))
         assertEquals(null, (outcome as ValidationOutcome.Valid).claims.single().evidenceQuote)
+    }
+
+    @Test
+    fun `propagates the reason to the claim`() {
+        val outcome = validate(json(claim(reason = "porque se mencionó explícitamente")))
+        assertEquals("porque se mencionó explícitamente", (outcome as ValidationOutcome.Valid).claims.single().reason)
+    }
+
+    @Test
+    fun `carries the root summary through validation`() {
+        val raw = """{"summary":"Clase de repaso.","claims":[$CLAIM_JSON]}"""
+        val outcome = validate(raw)
+        assertEquals("Clase de repaso.", (outcome as ValidationOutcome.Valid).summary)
     }
 
     @Test
@@ -143,5 +157,11 @@ class SemanticResponseValidatorTest {
     private fun invalidReason(outcome: ValidationOutcome): ValidationFailure {
         assertTrue("esperaba Invalid, fue $outcome", outcome is ValidationOutcome.Invalid)
         return (outcome as ValidationOutcome.Invalid).reason
+    }
+
+    private companion object {
+        const val CLAIM_JSON =
+            """{"claim_key":"B1-C1","category":"PAGE","value":"42","normalized_value":"42",""" +
+                """"status":"PERFORMED","confidence":0.95,"evidence_span_ids":["B1-S1"],"supersedes_claim_keys":[]}"""
     }
 }

@@ -82,6 +82,27 @@ class InferenceContractTest {
     }
 
     @Test
+    fun `decode reads an optional reason and a root summary`() {
+        val fixture = """
+            {"summary":"Repasamos saludos y vimos la página 12.",
+            "claims":[{"claim_key":"B1-C1","category":"TOPIC","value":"saludos",
+            "normalized_value":"saludos","status":"PERFORMED","confidence":0.9,
+            "evidence_span_ids":["B1-S1"],"supersedes_claim_keys":[],
+            "evidence_quote":"","reason":"Se practicaron saludos al inicio"}]}
+        """.trimIndent()
+        val claim = ProviderClaimsCodec.decode(fixture).single()
+        assertEquals("Se practicaron saludos al inicio", claim.reason)
+        assertEquals("Repasamos saludos y vimos la página 12.", ProviderClaimsCodec.summaryOf(fixture))
+    }
+
+    @Test
+    fun `summaryOf returns null when summary is blank or absent`() {
+        assertEquals(null, ProviderClaimsCodec.summaryOf("""{"claims":[],"summary":""}"""))
+        assertEquals(null, ProviderClaimsCodec.summaryOf("""{"claims":[]}"""))
+        assertEquals(null, ProviderClaimsCodec.summaryOf("{ not json"))
+    }
+
+    @Test
     fun `decode treats a blank or absent evidence quote as null`() {
         val blank = """
             {"claims":[{"claim_key":"B1-C1","category":"TOPIC","value":"saludos",

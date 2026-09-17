@@ -72,6 +72,7 @@ class RouterSemanticInterpreter(
         val disabled = mutableSetOf<InferenceProvider>()
         val strikes = mutableMapOf<InferenceProvider, Int>()
         val merged = mutableListOf<EvidenceClaim>()
+        val summaries = mutableListOf<String>()
         val processed = BooleanArray(packets.size)
         var anyLocal = false
         var anyRemote = false
@@ -138,6 +139,7 @@ class RouterSemanticInterpreter(
                 when {
                     remote != null && remote.provider != null -> {
                         merged += merger.merge(local, remote.claims)
+                        remote.summary?.takeIf { it.isNotBlank() }?.let { summaries += it }
                         anyRemote = true
                         journaled { journal?.completePacket(runId, request.packetId, InterpretationPacketState.REMOTE_OK, remote.provider) }
                     }
@@ -178,10 +180,11 @@ class RouterSemanticInterpreter(
         }
         journaled { journal?.completeRun(runId, runState) }
 
+        val summary = summaries.joinToString("\n\n").ifBlank { null }
         return if (anyLocal) {
-            InterpretationOutcome.LocalOrMixed(claims, failure)
+            InterpretationOutcome.LocalOrMixed(claims, failure, summary)
         } else {
-            InterpretationOutcome.Remote(claims)
+            InterpretationOutcome.Remote(claims, summary)
         }
     }
 

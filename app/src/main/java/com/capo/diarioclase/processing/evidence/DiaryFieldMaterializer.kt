@@ -13,6 +13,7 @@ class DiaryFieldMaterializer(
         sessionId: String,
         mode: InterpretationMode,
         claims: List<EvidenceClaim>,
+        summary: String = "",
     ): DiaryDraft {
         val presentation = projector.project(claims, mode)
         val acceptedByField = presentation.accepted.groupBy { claim ->
@@ -32,6 +33,7 @@ class DiaryFieldMaterializer(
             homework = values(acceptedByField[DiaryField.HOMEWORK]),
             accepted = presentation.accepted,
             confirm = presentation.confirm,
+            summary = summary,
         )
     }
 

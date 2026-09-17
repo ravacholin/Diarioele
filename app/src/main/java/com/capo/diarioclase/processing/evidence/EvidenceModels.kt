@@ -47,6 +47,8 @@ data class RawClaim(
     // Cita literal del fragmento que respalda el claim (Nivel 2). Solo se conserva si el
     // validador la verificó como substring real de un span citado. No se persiste.
     val evidenceQuote: String? = null,
+    // Justificación breve del claim (Nivel 3). Se persiste y se muestra al tocar el elemento.
+    val reason: String? = null,
 )
 data class EvidenceClaim(
     val id: String,
@@ -73,6 +75,8 @@ data class EvidenceClaim(
     val provenance: ClaimProvenance = ClaimProvenance.REMOTE,
     // Cita literal verificada que respalda el claim (Nivel 2). Transitoria: no se persiste.
     val evidenceQuote: String? = null,
+    // Justificación breve del claim (Nivel 3). Se persiste.
+    val reason: String? = null,
 )
 data class ClaimPresentation(val accepted: List<EvidenceClaim>, val confirm: List<EvidenceClaim>, val hidden: List<EvidenceClaim>) {
     val visibleCount get() = accepted.size + confirm.size
@@ -87,4 +91,6 @@ data class DiaryDraft(
     val homework: String,
     val accepted: List<EvidenceClaim>,
     val confirm: List<EvidenceClaim>,
+    // Resumen de la clase generado por IA (Nivel 3). Se persiste. Vacío si no hubo remoto.
+    val summary: String = "",
 )

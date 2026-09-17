@@ -87,6 +87,12 @@ class InterpretationPromptFactory {
               se menciona la página o el ejercicio. Copiala textual del fragmento, sin corregir.
               Sirve para respaldar el número cuando la transcripción lo escribió mal. Incluí siempre
               el campo; usá "" (vacío) cuando no aplique (temas, actividades, tareas).
+            - reason: una justificación breve (una frase) de por qué inferiste este claim. Incluí
+              siempre el campo.
+
+            Además del arreglo "claims", devolvé una propiedad "summary": un resumen de 2 a 3
+            frases de lo que pasó en la clase, en español rioplatense, sin inventar datos. Si no
+            hay contenido suficiente, usá "".
 
             Reglas:
             - No inventes páginas, ejercicios ni temas: extraé solamente lo que se expresó.
@@ -123,8 +129,9 @@ class InterpretationPromptFactory {
             {
               "type": "object",
               "additionalProperties": false,
-              "required": ["claims"],
+              "required": ["claims", "summary"],
               "properties": {
+                "summary": { "type": "string" },
                 "claims": {
                   "type": "array",
                   "items": {
@@ -133,7 +140,7 @@ class InterpretationPromptFactory {
                     "required": [
                       "claim_key", "category", "value", "normalized_value",
                       "status", "confidence", "evidence_span_ids", "supersedes_claim_keys",
-                      "evidence_quote"
+                      "evidence_quote", "reason"
                     ],
                     "properties": {
                       "claim_key": { "type": "string" },
@@ -144,7 +151,8 @@ class InterpretationPromptFactory {
                       "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
                       "evidence_span_ids": { "type": "array", "items": { "type": "string" } },
                       "supersedes_claim_keys": { "type": "array", "items": { "type": "string" } },
-                      "evidence_quote": { "type": "string" }
+                      "evidence_quote": { "type": "string" },
+                      "reason": { "type": "string" }
                     }
                   }
                 }

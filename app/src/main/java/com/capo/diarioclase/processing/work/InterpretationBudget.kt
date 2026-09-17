@@ -24,12 +24,19 @@ data class InterpretationBudget(
 sealed interface InterpretationOutcome {
     val claims: List<EvidenceClaim>
 
+    /** Resumen de la clase generado por IA (Nivel 3), unido de los paquetes remotos. */
+    val summary: String? get() = null
+
     /** Toda la sesión se resolvió con respuestas remotas validadas. */
-    data class Remote(override val claims: List<EvidenceClaim>) : InterpretationOutcome
+    data class Remote(
+        override val claims: List<EvidenceClaim>,
+        override val summary: String? = null,
+    ) : InterpretationOutcome
 
     /** Al menos un paquete cayó al fallback local (deadline, sin red o dependencia caída). */
     data class LocalOrMixed(
         override val claims: List<EvidenceClaim>,
         val failure: InterpretationFailure?,
+        override val summary: String? = null,
     ) : InterpretationOutcome
 }

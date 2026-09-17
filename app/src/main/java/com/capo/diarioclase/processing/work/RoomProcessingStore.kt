@@ -123,6 +123,9 @@ class RoomProcessingStore(
             editedPages = existing?.editedPages ?: false,
             editedExercises = existing?.editedExercises ?: false,
             editedHomework = existing?.editedHomework ?: false,
+            // Un resumen nuevo (interpretación remota) reemplaza; una reproyección local de modo
+            // llega con summary vacío y conserva el resumen ya persistido.
+            summary = summary.ifBlank { existing?.summary.orEmpty() },
         )
 
     override suspend fun sessionState(id: SessionId) =
@@ -252,6 +255,7 @@ class RoomProcessingStore(
                     declaredConfidence = it.declaredConfidence,
                     effectiveConfidence = it.effectiveConfidence,
                     claimOrdinal = it.claimOrdinal,
+                    reason = it.reason,
                 )
             },
         )
@@ -438,6 +442,7 @@ class RoomProcessingStore(
             declaredConfidence = declaredConfidence,
             effectiveConfidence = effectiveConfidence,
             claimOrdinal = claimOrdinal,
+            reason = reason,
         )
 
     private fun TranscriptSpanEntity.toDomain() =

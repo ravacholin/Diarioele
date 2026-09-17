@@ -96,12 +96,13 @@ class SemanticResponseValidator(
                 evidences = evidences,
                 supersedesClaimKeys = claim.supersedesClaimKeys,
                 evidenceQuote = verifiedQuote(claim.evidenceQuote, evidenceSpans),
+                reason = claim.reason,
             )
         }
 
         if (hasSupersessionCycle(parsed)) return invalid(ValidationFailure.SUPERSEDE_CYCLE)
 
-        return ValidationOutcome.Valid(result)
+        return ValidationOutcome.Valid(result, ProviderClaimsCodec.summaryOf(rawJson))
     }
 
     /**
@@ -142,7 +143,7 @@ class SemanticResponseValidator(
 }
 
 sealed interface ValidationOutcome {
-    data class Valid(val claims: List<RawClaim>) : ValidationOutcome
+    data class Valid(val claims: List<RawClaim>, val summary: String? = null) : ValidationOutcome
     data class Invalid(val reason: ValidationFailure) : ValidationOutcome
 }
 

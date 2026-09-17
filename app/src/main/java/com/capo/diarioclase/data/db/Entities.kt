@@ -131,6 +131,8 @@ data class EvidenceClaimEntity(
     val declaredConfidence: Double = 0.0,
     val effectiveConfidence: Double = 0.0,
     val claimOrdinal: Int = 0,
+    // Justificación breve del claim (Nivel 3). Aditiva, con default para no romper filas legacy.
+    val reason: String? = null,
 )
 
 @Entity(
@@ -161,6 +163,8 @@ data class DiaryDraftEntity(
     val editedPages: Boolean = false,
     val editedExercises: Boolean = false,
     val editedHomework: Boolean = false,
+    // Resumen de la clase generado por IA (Nivel 3). Aditiva, con default para filas legacy.
+    val summary: String = "",
 )
 
 /** Acción de revisión del docente sobre un claim (Fase 6, Q4). */
