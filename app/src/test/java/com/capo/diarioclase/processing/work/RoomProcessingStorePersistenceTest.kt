@@ -11,6 +11,7 @@ import com.capo.diarioclase.data.db.DiarioDatabase
 import com.capo.diarioclase.data.db.SessionEntity
 import com.capo.diarioclase.data.db.SessionId
 import com.capo.diarioclase.data.db.TranscriptSpanEntity
+import com.capo.diarioclase.data.db.ReviewAction
 import com.capo.diarioclase.processing.evidence.ClaimCategory
 import com.capo.diarioclase.processing.evidence.ClaimOrigin
 import com.capo.diarioclase.processing.evidence.ClaimStatus
@@ -81,6 +82,43 @@ class RoomProcessingStorePersistenceTest {
             assertFalse(claims.single { it.id == "claim-old" }.active)
         } finally {
             reopened.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test fun `accepting an uncertain page moves it into the draft immediately`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "review-${UUID.randomUUID()}.db"
+        val database = Room.databaseBuilder(context, DiarioDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val dao = database.sessions()
+            dao.insertSession(SessionEntity("s", "2026-09-17", null, "AWAITING_REVIEW", 1, 1))
+            val store = RoomProcessingStore(database, Clock { 2 })
+            store.saveEvidence(
+                SessionId("s"),
+                listOf(
+                    EvidenceClaim(
+                        id = "page-2",
+                        category = ClaimCategory.PAGE,
+                        value = "2",
+                        normalizedValue = "2",
+                        status = ClaimStatus.UNCERTAIN,
+                        confidence = 0.8,
+                        origin = ClaimOrigin.GEMINI,
+                        evidence = EvidenceRef(BlockId("b"), 0, 1_000, "página 2"),
+                    ),
+                ),
+                DiaryDraft("s", InterpretationMode.CONSERVATIVE, "", "", "", "", "", emptyList(), emptyList()),
+            )
+
+            store.reviewClaim("page-2", ReviewAction.ACCEPT, null)
+
+            assertEquals(ClaimStatus.PERFORMED, store.persistedClaims(SessionId("s")).single().status)
+            assertEquals("Página 2", dao.draft("s")!!.pages)
+            assertEquals(ReviewAction.ACCEPT, store.revisions("page-2").single().action)
+        } finally {
+            database.close()
             context.deleteDatabase(name)
         }
     }

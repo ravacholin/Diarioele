@@ -41,6 +41,18 @@ class HybridClaimMergerTest {
     }
 
     @Test
+    fun `two explicit pages in one excerpt are not treated as a contradiction`() {
+        val excerpt = "página 1 ejercicio 2 página 2 ejercicio 3 y 4"
+        val local = page("1", ClaimOrigin.LOCAL_RULE, startMs = 0, endMs = 1_000)
+        val remoteFirst = remotePage(value = "1", excerpt = excerpt, quote = "página 1")
+        val remoteSecond = remotePage(value = "2", excerpt = excerpt, quote = "página 2")
+
+        val result = merger.merge(listOf(local), listOf(remoteFirst, remoteSecond))
+
+        assertEquals(ClaimStatus.PERFORMED, result.single { it.normalizedValue == "2" }.status)
+    }
+
+    @Test
     fun `weaker duplicate does not replace stronger claim`() {
         val strong = page("42", ClaimOrigin.LOCAL_RULE, startMs = 0, endMs = 1_000, effective = 0.95)
         val weak = page("42", ClaimOrigin.GEMINI, startMs = 0, endMs = 1_000, effective = 0.5)
