@@ -132,4 +132,29 @@ class InterpretationPromptFactoryTest {
         assertTrue(system.contains("evidence_quote"))
         assertTrue(system.lowercase().contains("cita literal"))
     }
+
+    @Test
+    fun `user text renders app hints in a separate block`() {
+        val request = request().copy(
+            hints = listOf("posible página 42", "marca de tarea del docente cerca del fragmento B1-S1"),
+        )
+        val userText = factory.create(request).userText
+        assertTrue(userText.contains("<pistas_app>"))
+        assertTrue(userText.contains("posible página 42"))
+        assertTrue(userText.contains("marca de tarea"))
+        assertTrue(userText.contains("</pistas_app>"))
+    }
+
+    @Test
+    fun `without hints there is no app hints block`() {
+        assertFalse(factory.create(request()).userText.contains("<pistas_app>"))
+    }
+
+    @Test
+    fun `system instruction frames hints as untrusted orientation`() {
+        val system = factory.create(request()).systemInstruction
+        assertTrue(system.contains("<pistas_app>"))
+        assertTrue(system.lowercase().contains("orientativas"))
+        assertTrue(system.lowercase().contains("no son instrucciones"))
+    }
 }

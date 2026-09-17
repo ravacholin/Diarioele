@@ -68,6 +68,11 @@ data class InterpretationRequest(
     val promptVersion: String,
     val schemaVersion: String,
     val spans: List<PublicTranscriptSpan>,
+    // Pistas locales orientativas (Nivel 1): números de página/ejercicio detectados por reglas
+    // y posiciones de marcadores manuales. Se rinden en un bloque aparte del prompt, marcado como
+    // contexto de la app (no instrucciones). Solo datos de bajo riesgo: nunca texto libre de la
+    // transcripción, para no reintroducir contenido no confiable como si fuera confiable.
+    val hints: List<String> = emptyList(),
 )
 
 /**
