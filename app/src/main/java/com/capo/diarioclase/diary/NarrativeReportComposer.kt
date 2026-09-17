@@ -25,14 +25,17 @@ class NarrativeReportComposer(
         val pages = pagesProse(pagesComposer.composeLines(accepted))
         val homework = values(byField[DiaryField.HOMEWORK])
 
-        val sentences = buildList {
-            dateLine(pedagogicalDate)?.let { add(it) }
+        val content = buildList {
             if (topics.isNotBlank()) add("Temas: $topics.")
             if (activities.isNotBlank()) add("Actividades: $activities.")
             if (pages.isNotBlank()) add("En clase se trabajó en $pages.")
             if (homework.isNotBlank()) add("Tarea: $homework.")
         }
-        return sentences.joinToString("\n\n").ifBlank { EMPTY_REPORT }
+        val sentences = buildList {
+            dateLine(pedagogicalDate)?.let { add(it) }
+            if (content.isEmpty()) add(EMPTY_REPORT) else addAll(content)
+        }
+        return sentences.joinToString("\n\n")
     }
 
     private fun fieldOf(claim: EvidenceClaim): DiaryField? =
