@@ -3,6 +3,7 @@ package com.capo.diarioclase.ui.capture
 import android.media.MediaPlayer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,7 +19,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.capo.diarioclase.data.db.*
 import com.capo.diarioclase.diary.DiaryClipboardFormatter
+import com.capo.diarioclase.diary.NarrativeReportComposer
 import com.capo.diarioclase.processing.evidence.*
+import kotlinx.coroutines.delay
 
 @Composable
 fun CaptureScreen(state:CaptureUiState,onStart:()->Unit,onPause:()->Unit,onResume:()->Unit,onMark:()->Unit,onFinalize:()->Unit,onProcess:(InterpretationMode)->Unit,onMode:(InterpretationMode)->Unit,onPauseProcessing:()->Unit,onResumeProcessing:(InterpretationMode)->Unit,onContinueLocal:(InterpretationMode)->Unit,onSave:(String,String,String,String,String)->Unit,onApprove:(String,String,String,String,String)->Unit,onRetryCleanup:()->Unit,interpretationMode:InterpretationMode=InterpretationMode.CONSERVATIVE,onAcceptClaim:(String)->Unit={},onRejectClaim:(String)->Unit={},onCorrectClaim:(String,String)->Unit={_,_->},onSaveExample:()->Unit={},onDeleteExamples:()->Unit={},onExportCorpus:()->Unit={},onImportCorpus:()->Unit={},onRetryInterpretation:()->Unit={}){
@@ -69,9 +72,13 @@ fun CaptureScreen(state:CaptureUiState,onStart:()->Unit,onPause:()->Unit,onResum
  var confirmDeleteCorpus by remember{mutableStateOf(false)}
  var correcting by remember{mutableStateOf<EvidenceClaim?>(null)}
  val projection=remember(state.claims,draft.mode){InterpretationProjector().project(state.claims,InterpretationMode.valueOf(draft.mode))}
+ val reportText=remember(projection.accepted,state.lastRecording?.pedagogicalDate){NarrativeReportComposer().compose(state.lastRecording?.pedagogicalDate,projection.accepted)}
+ var reportCopied by remember{mutableStateOf(false)}
+ LaunchedEffect(reportCopied){if(reportCopied){delay(2_000);reportCopied=false}}
  val copyText=DiaryClipboardFormatter().formatDraft(state.lastRecording?.pedagogicalDate,topics,activities,pages,exercises,homework)
  LazyColumn(Modifier.fillMaxSize().background(Color.Black).padding(horizontal=24.dp),verticalArrangement=Arrangement.spacedBy(18.dp)){
   item{Spacer(Modifier.height(24.dp));AppLabel();Spacer(Modifier.height(36.dp));Text("FICHA DEL DÍA",fontSize=38.sp,fontWeight=FontWeight.Black);Text("BORRADOR EDITABLE",color=Color.LightGray)}
+  item{Text("INFORME",fontSize=12.sp,fontWeight=FontWeight.Bold,letterSpacing=2.sp);Spacer(Modifier.height(8.dp));Column(Modifier.fillMaxWidth().border(1.dp,Color.White).clickable{clipboard.setText(AnnotatedString(reportText));reportCopied=true}.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){Text(reportText,color=Color.White,fontSize=15.sp)};Spacer(Modifier.height(6.dp));Text(if(reportCopied)"Informe copiado" else "Tocá el informe para copiarlo y pegarlo donde quieras.",color=Color.LightGray,fontSize=12.sp)}
   item{Text("INTERPRETACIÓN",fontSize=12.sp,fontWeight=FontWeight.Bold,letterSpacing=2.sp);Spacer(Modifier.height(8.dp));Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){val changeMode:(InterpretationMode)->Unit={mode->onMode(mode)};ModeButton("CONSERVADOR",InterpretationMode.CONSERVATIVE,draft.mode,!state.busy,changeMode);ModeButton("EQUILIBRADO",InterpretationMode.BALANCED,draft.mode,!state.busy,changeMode);ModeButton("EXHAUSTIVO",InterpretationMode.EXHAUSTIVE,draft.mode,!state.busy,changeMode)};Text("Conservador incluye solo datos explícitos y deja dudas por confirmar.",color=Color.LightGray,fontSize=12.sp)}
   item{val editorEnabled=draftEditorEnabled(state.busy);DraftField("TEMAS",topics,editorEnabled){topics=it};DraftField("ACTIVIDADES REALIZADAS",activities,editorEnabled){activities=it};DraftField("PÁGINAS Y EJERCICIOS",pages,editorEnabled){pages=it};if(exercises.isNotBlank())DraftField("EJERCICIOS HECHOS",exercises,editorEnabled){exercises=it};DraftField("TAREA",homework,editorEnabled){homework=it}}
   item{MonoButton("GUARDAR CAMBIOS",!state.busy,{onSave(topics,activities,pages,exercises,homework)});Spacer(Modifier.height(8.dp));MonoButton("APROBAR Y BORRAR AUDIO",!state.busy,{confirmApproval=true});Spacer(Modifier.height(8.dp));MonoButton("COPIAR DIARIO",true,{clipboard.setText(AnnotatedString(copyText))},false);Spacer(Modifier.height(8.dp));MonoButton("REINTERPRETAR",!state.busy,onRetryInterpretation,false);Text("Vuelve a generar la ficha reusando la transcripción, sin volver a grabar.",color=Color.LightGray,fontSize=12.sp);state.message?.let{Text(it,color=Color.LightGray,modifier=Modifier.padding(top=8.dp))}}

@@ -10,25 +10,42 @@ import com.capo.diarioclase.processing.semantic.StatusFieldPolicy
  */
 class PagesAndExercisesComposer {
 
+    /**
+     * Una línea ya resuelta de páginas/ejercicios. `page` es `null` cuando hay ejercicios
+     * sueltos sin página de contexto. Permite redactar prosa sin volver a parsear el texto.
+     */
+    data class ComposedLine(val page: String?, val exercises: List<String>)
+
     private sealed interface Line {
-        fun render(): String
+        fun toComposed(): ComposedLine
     }
 
     private data class PageLine(
         val page: String,
         val exercises: MutableList<String> = mutableListOf(),
     ) : Line {
-        override fun render(): String =
-            if (exercises.isEmpty()) page else "$page (${exercises.joinToString(", ")})"
+        override fun toComposed(): ComposedLine = ComposedLine(page, exercises.toList())
     }
 
     private data class OrphanLine(
         val exercises: MutableList<String> = mutableListOf(),
     ) : Line {
-        override fun render(): String = exercises.joinToString(", ")
+        override fun toComposed(): ComposedLine = ComposedLine(null, exercises.toList())
     }
 
-    fun compose(claims: List<EvidenceClaim>): String {
+    fun compose(claims: List<EvidenceClaim>): String =
+        composeLines(claims).joinToString("\n") { renderLine(it) }.trim()
+
+    /** Igual que [compose] pero devuelve las líneas estructuradas para redactarlas en prosa. */
+    fun composeLines(claims: List<EvidenceClaim>): List<ComposedLine> = buildLines(claims).map { it.toComposed() }
+
+    private fun renderLine(line: ComposedLine): String = when {
+        line.page == null -> line.exercises.joinToString(", ")
+        line.exercises.isEmpty() -> line.page
+        else -> "${line.page} (${line.exercises.joinToString(", ")})"
+    }
+
+    private fun buildLines(claims: List<EvidenceClaim>): List<Line> {
         val lines = mutableListOf<Line>()
         var currentBlock: String? = null
         var currentPage: PageLine? = null
@@ -67,7 +84,7 @@ class PagesAndExercisesComposer {
             }
         }
 
-        return lines.joinToString("\n") { it.render() }.trim()
+        return lines
     }
 
     private fun orderedByEvidence(claims: List<EvidenceClaim>): List<EvidenceClaim> {
