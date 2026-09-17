@@ -137,8 +137,8 @@ class RoomProcessingStorePersistenceTest {
             store.saveEvidence(
                 SessionId("s"),
                 listOf(
-                    reviewPage("page-1", "1"),
-                    reviewPage("page-2", "2"),
+                    reviewPage("page-1", "1", startMs = 0),
+                    reviewPage("page-2", "2", startMs = 1),
                 ),
                 DiaryDraft("s", InterpretationMode.CONSERVATIVE, "", "", "", "", "", emptyList(), emptyList()),
             )
@@ -179,7 +179,7 @@ class RoomProcessingStorePersistenceTest {
     private fun evidence(block: String, startMs: Long, endMs: Long, contextual: Boolean) =
         EvidenceRef(BlockId(block), startMs, endMs, "cita", contextual = contextual)
 
-    private fun reviewPage(id: String, value: String) = EvidenceClaim(
+    private fun reviewPage(id: String, value: String, startMs: Long = 0) = EvidenceClaim(
         id = id,
         category = ClaimCategory.PAGE,
         value = value,
@@ -187,7 +187,7 @@ class RoomProcessingStorePersistenceTest {
         status = ClaimStatus.UNCERTAIN,
         confidence = 0.8,
         origin = ClaimOrigin.GEMINI,
-        evidence = EvidenceRef(BlockId("b"), 0, 1_000, "página $value"),
+        evidence = EvidenceRef(BlockId("b"), startMs, startMs + 1_000, "página $value"),
     )
 
     private fun claim(
