@@ -19,8 +19,8 @@ import com.capo.diarioclase.processing.evidence.SpanishNumberNormalizer as WordN
  * - Un candidato local cuya evidencia ya fue citada por algún claim remoto se descarta: el
  *   remoto interpretó esos spans. Un candidato local sobre spans que el remoto no citó se
  *   conserva como [ClaimProvenance.LOCAL] (rellena huecos).
- * - Conflicto de página: si hay una página local (o BOTH) y una página solo remota con un
- *   número distinto, la remota pasa a UNCERTAIN. Nunca se borra una página local con evidencia.
+ * - Varias páginas explícitas pueden coexistir: un número distinto no es por sí solo una
+ *   contradicción. Las correcciones se resuelven mediante supersesiones y cronología.
  * - Anclaje de números remotos (Nivel 2): un claim numérico solo remoto (PAGE/EXERCISE) se
  *   evalúa contra el texto de sus spans citados. Si el número aparece anclado por su palabra
  *   clave, se mantiene. Si no aparece pero el modelo citó un fragmento real que menciona la
@@ -69,7 +69,7 @@ class HybridClaimMerger(
             out += l.toEvidenceClaim(ClaimProvenance.LOCAL)
         }
 
-        return resolvePageConflicts(resolveRemoteGrounding(out))
+        return resolveRemoteGrounding(out)
     }
 
     /**
@@ -114,28 +114,6 @@ class HybridClaimMerger(
 
     private fun numbersOf(value: String, normalizedValue: String, kind: NumberKind): List<String> =
         normalizer.bareValues(value, kind).ifEmpty { normalizer.bareValues(normalizedValue, kind) }
-
-    /**
-     * Una página solo remota que contradice a una página local con evidencia pasa a UNCERTAIN:
-     * la lectura determinista local no se descarta, la remota queda para confirmación.
-     */
-    private fun resolvePageConflicts(claims: List<EvidenceClaim>): List<EvidenceClaim> {
-        val groundedPages = claims
-            .filter { it.category == ClaimCategory.PAGE && it.provenance != ClaimProvenance.REMOTE }
-            .map { it.normalizedValue }
-            .toSet()
-        if (groundedPages.isEmpty()) return claims
-        return claims.map { claim ->
-            if (claim.category == ClaimCategory.PAGE &&
-                claim.provenance == ClaimProvenance.REMOTE &&
-                claim.normalizedValue !in groundedPages
-            ) {
-                claim.copy(status = ClaimStatus.UNCERTAIN)
-            } else {
-                claim
-            }
-        }
-    }
 
     private fun key(claim: RawClaim): String = "${claim.category}|${coreValue(claim)}"
 

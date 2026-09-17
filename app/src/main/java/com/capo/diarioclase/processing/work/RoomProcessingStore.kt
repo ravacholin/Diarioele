@@ -348,20 +348,26 @@ class RoomProcessingStore(
     suspend fun reviewClaim(claimId: String, action: ReviewAction, correctedValue: String?): Unit =
         database.withTransaction {
             if (action == ReviewAction.CORRECT) require(!correctedValue.isNullOrBlank())
-            val claim = dao.claimById(claimId)
-            val before = claim?.value.orEmpty()
+            val claim = requireNotNull(dao.claimById(claimId)) { "No existe el elemento por revisar." }
+            val before = claim.value
             val after = when (action) {
                 ReviewAction.CORRECT -> correctedValue.orEmpty()
                 ReviewAction.REJECT -> ""
                 ReviewAction.ACCEPT -> before
             }
-            val field = claim?.let { categoryField(it.category) }?.name.orEmpty()
-            dao.insertRevision(revision(claim?.sessionId.orEmpty(), field, before, after, action, claimId))
+            val field = categoryField(claim.category).name
+            dao.insertRevision(revision(claim.sessionId, field, before, after, action, claimId))
             when (action) {
-                ReviewAction.ACCEPT -> dao.setClaimActive(claimId, true)
+                ReviewAction.ACCEPT -> dao.acceptClaim(claimId)
                 ReviewAction.REJECT -> dao.setClaimActive(claimId, false)
-                ReviewAction.CORRECT -> dao.setClaimValue(claimId, correctedValue!!, correctedValue)
+                ReviewAction.CORRECT -> dao.correctClaim(claimId, correctedValue!!, correctedValue)
             }
+            claim.sessionId
+        }.let { sessionId ->
+            val mode = dao.draft(sessionId)?.mode
+                ?.let { runCatching { com.capo.diarioclase.processing.evidence.InterpretationMode.valueOf(it) }.getOrNull() }
+                ?: com.capo.diarioclase.processing.evidence.InterpretationMode.CONSERVATIVE
+            LocalDraftReprojector(this).reproject(SessionId(sessionId), mode)
         }
 
     suspend fun revisions(claimId: String): List<DraftFieldRevision> =

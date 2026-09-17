@@ -44,7 +44,7 @@ class DiaryFieldMaterializerTest {
             ),
         )
 
-        assertEquals("42 (3)", draft.pages)
+        assertEquals("Página 42: ejercicio 3", draft.pages)
         assertEquals("", draft.exercises)
         assertTrue(draft.homework.isEmpty())
     }

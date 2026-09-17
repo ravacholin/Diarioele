@@ -94,4 +94,6 @@ import kotlinx.coroutines.flow.Flow
  @Query("SELECT * FROM evidence_claims WHERE id=:id LIMIT 1") suspend fun claimById(id:String):EvidenceClaimEntity?
  @Query("UPDATE evidence_claims SET active=:active WHERE id=:id") suspend fun setClaimActive(id:String,active:Boolean):Int
  @Query("UPDATE evidence_claims SET value=:value,normalizedValue=:normalized WHERE id=:id") suspend fun setClaimValue(id:String,value:String,normalized:String):Int
+ @Query("UPDATE evidence_claims SET active=1,status='PERFORMED',confidence=1.0,effectiveConfidence=1.0 WHERE id=:id") suspend fun acceptClaim(id:String):Int
+ @Query("UPDATE evidence_claims SET value=:value,normalizedValue=:normalized,active=1,status='PERFORMED',confidence=1.0,effectiveConfidence=1.0 WHERE id=:id") suspend fun correctClaim(id:String,value:String,normalized:String):Int
 }
