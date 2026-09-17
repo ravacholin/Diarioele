@@ -1,13 +1,13 @@
 package com.capo.diarioclase.processing.transcription
 
-import com.capo.diarioclase.recording.audio.BITS_PER_SAMPLE
 import com.capo.diarioclase.recording.audio.CHANNELS
+import com.capo.diarioclase.recording.audio.MuLawCodec
 import com.capo.diarioclase.recording.audio.SAMPLE_RATE
-import com.capo.diarioclase.recording.audio.WAV_HEADER_BYTES
+import com.capo.diarioclase.recording.audio.STORED_BITS_PER_SAMPLE
+import com.capo.diarioclase.recording.audio.STORED_BYTES_PER_SAMPLE
+import com.capo.diarioclase.recording.audio.WAVE_FORMAT_MULAW
 import java.io.File
 import java.io.RandomAccessFile
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import kotlin.math.min
 
 data class AudioWindowPlan(
@@ -48,13 +48,13 @@ object PcmWindowReader {
         require(plan.endMs >= plan.startMs) { "La ventana de audio es inválida" }
 
         return RandomAccessFile(file, "r").use { input ->
-            validateCanonicalPcm16Wav(input)
+            val data = locateMuLawData(input)
 
-            val declaredDataBytes = input.readIntLeAt(40).toLong() and 0xffffffffL
-            val availableDataBytes = (input.length() - WAV_HEADER_BYTES).coerceAtLeast(0L)
+            val declaredDataBytes = data.byteLength
+            val availableDataBytes = (input.length() - data.offset).coerceAtLeast(0L)
             require(declaredDataBytes <= availableDataBytes) { "El WAV está truncado" }
 
-            val bytesPerSample = CHANNELS * BITS_PER_SAMPLE / 8
+            val bytesPerSample = STORED_BYTES_PER_SAMPLE.toLong()
             val firstSample = plan.startMs * SAMPLE_RATE / 1_000L
             val lastSample = plan.endMs * SAMPLE_RATE / 1_000L
             val totalSamples = declaredDataBytes / bytesPerSample
@@ -67,28 +67,49 @@ object PcmWindowReader {
             require(sampleCountLong <= Int.MAX_VALUE) { "La ventana es demasiado grande" }
             val sampleCount = sampleCountLong.toInt()
             val samples = FloatArray(sampleCount)
-            // Lectura en bloque: una sola llamada de E/S en vez de dos por muestra
-            // (antes ~960 000 llamadas para 30 s). Decodifica PCM16 little-endian.
-            val rawBytes = ByteArray(sampleCount * bytesPerSample)
-            input.seek(WAV_HEADER_BYTES + firstSample * bytesPerSample)
+            // Lectura en bloque: una sola llamada de E/S. Cada byte µ-law se decodifica a PCM16
+            // (misma normalización que antes) para entregárselo a Whisper.
+            val rawBytes = ByteArray(sampleCount)
+            input.seek(data.offset + firstSample * bytesPerSample)
             input.readFully(rawBytes)
-            val buffer = ByteBuffer.wrap(rawBytes).order(ByteOrder.LITTLE_ENDIAN)
             for (index in 0 until sampleCount) {
-                samples[index] = buffer.short.toFloat() / 32_768f
+                samples[index] = MuLawCodec.decode(rawBytes[index]).toFloat() / 32_768f
             }
             samples
         }
     }
 
-    private fun validateCanonicalPcm16Wav(input: RandomAccessFile) {
-        require(input.length() >= WAV_HEADER_BYTES) { "El archivo no contiene un encabezado WAV completo" }
+    private data class DataChunk(val offset: Long, val byteLength: Long)
+
+    /** Recorre los bloques RIFF, valida el `fmt ` µ-law y devuelve la ubicación del bloque `data`. */
+    private fun locateMuLawData(input: RandomAccessFile): DataChunk {
+        val length = input.length()
+        require(length >= 12L) { "El archivo no contiene un encabezado WAV completo" }
         require(input.readAsciiAt(0, 4) == "RIFF") { "Falta la cabecera RIFF" }
         require(input.readAsciiAt(8, 4) == "WAVE") { "Falta la cabecera WAVE" }
-        require(input.readAsciiAt(36, 4) == "data") { "El WAV no usa el formato canónico esperado" }
-        require(input.readShortLeAt(20) == 1) { "El WAV no contiene PCM lineal" }
-        require(input.readShortLeAt(22) == CHANNELS) { "El WAV debe ser mono" }
-        require(input.readIntLeAt(24) == SAMPLE_RATE) { "El WAV debe usar 16 kHz" }
-        require(input.readShortLeAt(34) == BITS_PER_SAMPLE) { "El WAV debe usar PCM de 16 bits" }
+
+        var position = 12L
+        var validatedFmt = false
+        var dataChunk: DataChunk? = null
+        while (position + 8L <= length) {
+            val id = input.readAsciiAt(position, 4)
+            val size = input.readIntLeAt(position + 4L).toLong() and 0xffffffffL
+            val body = position + 8L
+            when (id) {
+                "fmt " -> {
+                    require(input.readShortLeAt(body) == WAVE_FORMAT_MULAW) { "El WAV no usa µ-law (G.711)" }
+                    require(input.readShortLeAt(body + 2L) == CHANNELS) { "El WAV debe ser mono" }
+                    require(input.readIntLeAt(body + 4L) == SAMPLE_RATE) { "El WAV debe usar 16 kHz" }
+                    require(input.readShortLeAt(body + 14L) == STORED_BITS_PER_SAMPLE) { "El WAV debe usar µ-law de 8 bits" }
+                    validatedFmt = true
+                }
+                "data" -> dataChunk = DataChunk(body, size)
+            }
+            if (validatedFmt && dataChunk != null) break
+            position = body + size + (size and 1L)
+        }
+        require(validatedFmt) { "El WAV no contiene un bloque fmt válido" }
+        return dataChunk ?: throw IllegalArgumentException("El WAV no contiene datos de audio")
     }
 
     private fun RandomAccessFile.readAsciiAt(offset: Long, length: Int): String {
