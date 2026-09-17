@@ -15,12 +15,13 @@ class FileSegmentStore(private val root:File,private val listFiles:()->Array<Fil
  override suspend fun open(blockId:BlockId,ordinal:Int)=withContext(Dispatchers.IO){
   val id=SegmentId(UUID.randomUUID().toString());val safe=blockId.value.replace(Regex("[^A-Za-z0-9-]"),"_")
   val file=File(root,"${safe}__${ordinal}__${id.value}.open.wav")
-  RandomAccessFile(file,"rw").use{it.write(WavHeader.forPcm(0).encode());it.fd.sync()}
+  RandomAccessFile(file,"rw").use{it.write(WavHeader.forMuLaw(0).encode());it.fd.sync()}
   OpenSegment(id,blockId,file.absolutePath)
  }
  override suspend fun append(segment:OpenSegment,pcm:ShortArray,count:Int)=withContext(Dispatchers.IO){
   require(count in 0..pcm.size)
-  RandomAccessFile(segment.path,"rw").use{f->f.seek(f.length());for(i in 0 until count){val v=pcm[i].toInt();f.write(v and 255);f.write((v ushr 8) and 255)};f.fd.sync()}
+  val encoded=ByteArray(count){MuLawCodec.encode(pcm[it])}
+  RandomAccessFile(segment.path,"rw").use{f->f.seek(f.length());f.write(encoded);f.fd.sync()}
  }
  override suspend fun close(segment:OpenSegment)=withContext(Dispatchers.IO){closeFile(File(segment.path),segment.id,segment.blockId)}
  override suspend fun repairOpenSegments()=withContext(Dispatchers.IO){
@@ -37,10 +38,10 @@ class FileSegmentStore(private val root:File,private val listFiles:()->Array<Fil
  }
  private fun listedFiles()=listFiles()?:throw IOException("No se pudo listar el audio temporal")
  private fun closeFile(file:File,id:SegmentId,blockId:BlockId):ReadySegment {
-  RandomAccessFile(file,"rw").use{f->val data=(f.length()-WAV_HEADER_BYTES).coerceAtLeast(0).coerceAtMost(Int.MAX_VALUE.toLong()).toInt();f.seek(0);f.write(WavHeader.forPcm(data).encode());f.fd.sync()}
+  RandomAccessFile(file,"rw").use{f->val data=(f.length()-WAV_HEADER_BYTES).coerceAtLeast(0).coerceAtMost(Int.MAX_VALUE.toLong()).toInt();f.seek(0);f.write(WavHeader.forMuLaw(data).encode());f.fd.sync()}
   val ready=File(file.parentFile,file.name.removeSuffix(".open.wav")+".ready.wav")
   try{Files.move(file.toPath(),ready.toPath(),StandardCopyOption.ATOMIC_MOVE)}catch(_:Exception){Files.move(file.toPath(),ready.toPath(),StandardCopyOption.REPLACE_EXISTING)}
-  val bytes=(ready.length()-WAV_HEADER_BYTES).coerceAtLeast(0);val duration=bytes*1_000/(SAMPLE_RATE*CHANNELS*(BITS_PER_SAMPLE/8))
+  val bytes=(ready.length()-WAV_HEADER_BYTES).coerceAtLeast(0);val duration=bytes*1_000/(SAMPLE_RATE*CHANNELS*STORED_BYTES_PER_SAMPLE)
   return ReadySegment(id,blockId,ready.absolutePath,duration,sha256(ready))
  }
  private fun sha256(file:File):String {val d=MessageDigest.getInstance("SHA-256");file.inputStream().use{input->val b=ByteArray(8192);while(true){val n=input.read(b);if(n<0)break;d.update(b,0,n)}};return d.digest().joinToString(""){"%02x".format(it)}}
