@@ -25,7 +25,8 @@ class SemanticResponseValidatorTest {
         confidence: Double = 0.95,
         evidence: List<String> = listOf("B1-S1"),
         supersedes: List<String> = emptyList(),
-    ) = ProviderSemanticClaim(key, category, value, normalized, status, confidence, evidence, supersedes)
+        evidenceQuote: String? = null,
+    ) = ProviderSemanticClaim(key, category, value, normalized, status, confidence, evidence, supersedes, evidenceQuote)
 
     private fun json(vararg claims: ProviderSemanticClaim) = ProviderClaimsCodec.encode(claims.toList())
 
@@ -47,6 +48,26 @@ class SemanticResponseValidatorTest {
         assertEquals(1, claim.evidence.audioSegmentOrdinal)
         assertEquals(1, claim.evidence.spanOrdinal)
         assertEquals(false, claim.evidence.contextual)
+    }
+
+    @Test
+    fun `keeps an evidence quote that is a real substring of a cited span`() {
+        val outcome = validate(json(claim(evidenceQuote = "cuarenta y dos")))
+        val claim = (outcome as ValidationOutcome.Valid).claims.single()
+        assertEquals("cuarenta y dos", claim.evidenceQuote)
+    }
+
+    @Test
+    fun `drops an evidence quote that no cited span backs`() {
+        val outcome = validate(json(claim(evidenceQuote = "página noventa")))
+        val claim = (outcome as ValidationOutcome.Valid).claims.single()
+        assertEquals(null, claim.evidenceQuote)
+    }
+
+    @Test
+    fun `an absent evidence quote decodes and validates as null`() {
+        val outcome = validate(json(claim()))
+        assertEquals(null, (outcome as ValidationOutcome.Valid).claims.single().evidenceQuote)
     }
 
     @Test

@@ -78,9 +78,16 @@ class InterpretationPromptFactory {
             - confidence: número entre 0 y 1.
             - evidence_span_ids: lista de ids de fragmentos que respaldan el claim.
             - supersedes_claim_keys: lista de claim_key anteriores que este claim reemplaza.
+            - evidence_quote: para páginas y ejercicios, la cita literal del fragmento citado donde
+              se menciona la página o el ejercicio. Copiala textual del fragmento, sin corregir.
+              Sirve para respaldar el número cuando la transcripción lo escribió mal. Incluí siempre
+              el campo; usá "" (vacío) cuando no aplique (temas, actividades, tareas).
 
             Reglas:
             - No inventes páginas, ejercicios ni temas: extraé solamente lo que se expresó.
+            - Si el número de una página o ejercicio parece mal transcripto pero el contexto lo
+              deja claro, informá el número correcto en value y copiá en evidence_quote la parte
+              literal del fragmento (con la palabra "página" o "ejercicio").
             - Cada claim debe citar en evidence_span_ids al menos un fragmento válido de los
               provistos. No uses fragmentos marcados (contexto) como única evidencia.
             - Distinguí una pregunta del alumnado de una actividad realizada: una pregunta
@@ -116,7 +123,8 @@ class InterpretationPromptFactory {
                     "additionalProperties": false,
                     "required": [
                       "claim_key", "category", "value", "normalized_value",
-                      "status", "confidence", "evidence_span_ids", "supersedes_claim_keys"
+                      "status", "confidence", "evidence_span_ids", "supersedes_claim_keys",
+                      "evidence_quote"
                     ],
                     "properties": {
                       "claim_key": { "type": "string" },
@@ -126,7 +134,8 @@ class InterpretationPromptFactory {
                       "status": { "type": "string", "enum": ["PERFORMED", "ASSIGNED", "PROPOSED", "CANCELLED", "CORRECTED", "UNCERTAIN"] },
                       "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
                       "evidence_span_ids": { "type": "array", "items": { "type": "string" } },
-                      "supersedes_claim_keys": { "type": "array", "items": { "type": "string" } }
+                      "supersedes_claim_keys": { "type": "array", "items": { "type": "string" } },
+                      "evidence_quote": { "type": "string" }
                     }
                   }
                 }

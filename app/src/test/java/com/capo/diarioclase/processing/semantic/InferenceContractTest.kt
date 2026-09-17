@@ -68,6 +68,30 @@ class InferenceContractTest {
     }
 
     @Test
+    fun `decode reads an optional evidence quote and round-trips it`() {
+        val fixture = """
+            {"claims":[{"claim_key":"B1-C1","category":"PAGE","value":"12",
+            "normalized_value":"12","status":"PERFORMED","confidence":0.9,
+            "evidence_span_ids":["B1-S1"],"supersedes_claim_keys":[],
+            "evidence_quote":"página dolce"}]}
+        """.trimIndent()
+        val claim = ProviderClaimsCodec.decode(fixture).single()
+        assertEquals("página dolce", claim.evidenceQuote)
+        // Round-trip: al re-serializar y decodificar, la cita se conserva.
+        assertEquals(claim, ProviderClaimsCodec.decode(ProviderClaimsCodec.encode(listOf(claim))).single())
+    }
+
+    @Test
+    fun `decode treats a blank or absent evidence quote as null`() {
+        val blank = """
+            {"claims":[{"claim_key":"B1-C1","category":"TOPIC","value":"saludos",
+            "normalized_value":"saludos","status":"PERFORMED","confidence":0.9,
+            "evidence_span_ids":["B1-S1"],"supersedes_claim_keys":[],"evidence_quote":""}]}
+        """.trimIndent()
+        assertEquals(null, ProviderClaimsCodec.decode(blank).single().evidenceQuote)
+    }
+
+    @Test
     fun `decode rejects malformed json`() {
         assertThrows(ContractParseException::class.java) {
             ProviderClaimsCodec.decode("{ not json")

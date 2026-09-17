@@ -44,6 +44,9 @@ data class RawClaim(
     val effectiveConfidence: Double = confidence,
     val transcriptSpanIds: List<String> = emptyList(),
     val claimOrdinal: Int = 0,
+    // Cita literal del fragmento que respalda el claim (Nivel 2). Solo se conserva si el
+    // validador la verificó como substring real de un span citado. No se persiste.
+    val evidenceQuote: String? = null,
 )
 data class EvidenceClaim(
     val id: String,
@@ -68,6 +71,8 @@ data class EvidenceClaim(
     val claimOrdinal: Int = 0,
     // Procedencia de la fusión híbrida local + remota (Fase 6, Q3).
     val provenance: ClaimProvenance = ClaimProvenance.REMOTE,
+    // Cita literal verificada que respalda el claim (Nivel 2). Transitoria: no se persiste.
+    val evidenceQuote: String? = null,
 )
 data class ClaimPresentation(val accepted: List<EvidenceClaim>, val confirm: List<EvidenceClaim>, val hidden: List<EvidenceClaim>) {
     val visibleCount get() = accepted.size + confirm.size

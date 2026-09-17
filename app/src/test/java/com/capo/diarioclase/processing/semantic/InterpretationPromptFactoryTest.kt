@@ -121,7 +121,15 @@ class InterpretationPromptFactoryTest {
         listOf(
             "claim_key", "category", "value", "normalized_value",
             "status", "confidence", "evidence_span_ids", "supersedes_claim_keys",
+            "evidence_quote",
         ).forEach { assertTrue("falta campo $it en el esquema", schema.contains(it)) }
         assertTrue(schema.contains("\"additionalProperties\": false"))
+    }
+
+    @Test
+    fun `system instruction asks for a literal quote to anchor numbers`() {
+        val system = factory.create(request()).systemInstruction
+        assertTrue(system.contains("evidence_quote"))
+        assertTrue(system.lowercase().contains("cita literal"))
     }
 }

@@ -144,6 +144,9 @@ value class EphemeralCredential(val value: String)
  * - [category] y [status] se validan contra [ClaimCategory] y [ClaimStatus] en Task 5.
  * - [evidenceSpanIds] referencia [PublicTranscriptSpan.publicId]; nunca texto libre.
  * - [supersedesClaimKeys] lista [claimKey] anteriores que este claim reemplaza.
+ * - [evidenceQuote] (opcional) es la cita literal del fragmento en que el modelo se basa. Sirve
+ *   para anclar números de página/ejercicio cuando Whisper transcribió mal el número: el
+ *   validador la conserva solo si es substring real de un span citado no-contexto.
  */
 data class ProviderSemanticClaim(
     val claimKey: String,
@@ -154,6 +157,7 @@ data class ProviderSemanticClaim(
     val confidence: Double,
     val evidenceSpanIds: List<String>,
     val supersedesClaimKeys: List<String>,
+    val evidenceQuote: String? = null,
 )
 
 /** Identidad pública artificial de un span: `B<bloque>-S<span>`. */
@@ -247,6 +251,9 @@ object ProviderClaimsCodec {
             obj.put("confidence", claim.confidence)
             obj.put("evidence_span_ids", JSONArray(claim.evidenceSpanIds))
             obj.put("supersedes_claim_keys", JSONArray(claim.supersedesClaimKeys))
+            // Campo opcional: solo se emite cuando el claim lo trae, para no alterar el
+            // round-trip de los claims que no lo usan.
+            claim.evidenceQuote?.let { obj.put("evidence_quote", it) }
             array.put(obj)
         }
         return JSONObject().put("claims", array).toString()
@@ -283,7 +290,14 @@ object ProviderClaimsCodec {
         confidence = requireDouble("confidence", index),
         evidenceSpanIds = requireStringList("evidence_span_ids", index),
         supersedesClaimKeys = requireStringList("supersedes_claim_keys", index),
+        evidenceQuote = optionalString("evidence_quote"),
     )
+
+    /** Lee un texto opcional: ausente, nulo o no-texto → null, sin romper el parsing. */
+    private fun JSONObject.optionalString(key: String): String? {
+        if (!has(key) || isNull(key)) return null
+        return (get(key) as? String)?.takeIf { it.isNotBlank() }
+    }
 
     private fun JSONObject.requireString(key: String, index: Int): String {
         if (!has(key) || isNull(key)) throw ContractParseException("Claim $index sin '$key'.")
