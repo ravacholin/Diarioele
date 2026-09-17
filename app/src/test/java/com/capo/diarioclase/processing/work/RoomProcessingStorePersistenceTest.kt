@@ -19,6 +19,8 @@ import com.capo.diarioclase.processing.evidence.DiaryDraft
 import com.capo.diarioclase.processing.evidence.EvidenceClaim
 import com.capo.diarioclase.processing.evidence.EvidenceRef
 import com.capo.diarioclase.processing.evidence.InterpretationMode
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -123,8 +125,70 @@ class RoomProcessingStorePersistenceTest {
         }
     }
 
+    @Test fun `two concurrent accepts are both present in the regenerated draft`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "concurrent-review-${UUID.randomUUID()}.db"
+        val database = Room.databaseBuilder(context, DiarioDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val dao = database.sessions()
+            dao.insertSession(SessionEntity("s", "2026-09-17", null, "AWAITING_REVIEW", 1, 1))
+            val store = RoomProcessingStore(database, Clock { 2 })
+            store.saveEvidence(
+                SessionId("s"),
+                listOf(
+                    reviewPage("page-1", "1"),
+                    reviewPage("page-2", "2"),
+                ),
+                DiaryDraft("s", InterpretationMode.CONSERVATIVE, "", "", "", "", "", emptyList(), emptyList()),
+            )
+
+            listOf("page-1", "page-2").map { id ->
+                async { store.reviewClaim(id, ReviewAction.ACCEPT, null) }
+            }.awaitAll()
+
+            assertEquals("Página 1\nPágina 2", dao.draft("s")!!.pages)
+        } finally {
+            database.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test fun `reviewing an unknown claim fails without recording a revision`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "unknown-review-${UUID.randomUUID()}.db"
+        val database = Room.databaseBuilder(context, DiarioDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        try {
+            val dao = database.sessions()
+            dao.insertSession(SessionEntity("s", "2026-09-17", null, "AWAITING_REVIEW", 1, 1))
+            val store = RoomProcessingStore(database, Clock { 2 })
+
+            val failure = runCatching {
+                store.reviewClaim("missing", ReviewAction.ACCEPT, null)
+            }.exceptionOrNull()
+
+            assertEquals(IllegalArgumentException::class, failure!!::class)
+            assertEquals(emptyList<DraftFieldRevision>(), store.revisions("missing"))
+        } finally {
+            database.close()
+            context.deleteDatabase(name)
+        }
+    }
+
     private fun evidence(block: String, startMs: Long, endMs: Long, contextual: Boolean) =
         EvidenceRef(BlockId(block), startMs, endMs, "cita", contextual = contextual)
+
+    private fun reviewPage(id: String, value: String) = EvidenceClaim(
+        id = id,
+        category = ClaimCategory.PAGE,
+        value = value,
+        normalizedValue = value,
+        status = ClaimStatus.UNCERTAIN,
+        confidence = 0.8,
+        origin = ClaimOrigin.GEMINI,
+        evidence = EvidenceRef(BlockId("b"), 0, 1_000, "página $value"),
+    )
 
     private fun claim(
         id: String,

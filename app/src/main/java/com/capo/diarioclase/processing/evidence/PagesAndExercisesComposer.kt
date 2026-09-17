@@ -66,15 +66,23 @@ class PagesAndExercisesComposer(
                         val exercise = exerciseLabel(claim.value)
                         if (exercise.isEmpty()) return@forEach
                         val relatedPage = explicitPage(claim.value) ?: pageForExercise(claim)
-                        val destination = pages[relatedPage]?.exercises
-                            ?: currentPage?.exercises
-                            ?: run {
+                        val destination = when {
+                            relatedPage != null -> pages[relatedPage]?.exercises ?: run {
                                 val orphan = currentOrphans ?: OrphanLine().also {
                                     lines += it
                                     currentOrphans = it
                                 }
                                 orphan.exercises
                             }
+                            currentPage != null -> currentPage.exercises
+                            else -> {
+                                val orphan = currentOrphans ?: OrphanLine().also {
+                                    lines += it
+                                    currentOrphans = it
+                                }
+                                orphan.exercises
+                            }
+                        }
                         if (exercise !in destination) destination += exercise
                     }
                     else -> Unit

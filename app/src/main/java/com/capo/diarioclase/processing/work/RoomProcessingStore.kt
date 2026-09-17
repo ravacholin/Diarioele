@@ -346,29 +346,30 @@ class RoomProcessingStore(
      * revisión antes de actualizar el claim. Corregir exige un valor no vacío. Sin red ni scheduler.
      */
     suspend fun reviewClaim(claimId: String, action: ReviewAction, correctedValue: String?) {
-        val sessionId = database.withTransaction {
+        database.withTransaction {
             if (action == ReviewAction.CORRECT) require(!correctedValue.isNullOrBlank())
-            val claim = dao.claimById(claimId)
-            val before = claim?.value.orEmpty()
+            val claim = requireNotNull(dao.claimById(claimId)) { "Unknown claim: $claimId" }
+            val before = claim.value
             val after = when (action) {
                 ReviewAction.CORRECT -> correctedValue.orEmpty()
                 ReviewAction.REJECT -> ""
                 ReviewAction.ACCEPT -> before
             }
-            val field = claim?.let { categoryField(it.category) }?.name.orEmpty()
-            dao.insertRevision(revision(claim?.sessionId.orEmpty(), field, before, after, action, claimId))
-            when (action) {
+            val field = categoryField(claim.category).name
+            dao.insertRevision(revision(claim.sessionId, field, before, after, action, claimId))
+            val updated = when (action) {
                 ReviewAction.ACCEPT -> dao.acceptClaim(claimId)
                 ReviewAction.REJECT -> dao.setClaimActive(claimId, false)
                 ReviewAction.CORRECT -> dao.correctClaim(claimId, correctedValue!!, correctedValue)
             }
-            claim?.sessionId
+            check(updated == 1) { "Claim update failed: $claimId" }
+            val mode = dao.draft(claim.sessionId)?.mode
+                ?.let { runCatching { com.capo.diarioclase.processing.evidence.InterpretationMode.valueOf(it) }.getOrNull() }
+                ?: com.capo.diarioclase.processing.evidence.InterpretationMode.CONSERVATIVE
+            // La mutación y la reproyección forman una única transacción: dos revisiones rápidas
+            // se serializan y una cancelación no puede dejar el claim y el borrador desalineados.
+            LocalDraftReprojector(this).reproject(SessionId(claim.sessionId), mode)
         }
-        if (sessionId == null) return
-        val mode = dao.draft(sessionId)?.mode
-            ?.let { runCatching { com.capo.diarioclase.processing.evidence.InterpretationMode.valueOf(it) }.getOrNull() }
-            ?: com.capo.diarioclase.processing.evidence.InterpretationMode.CONSERVATIVE
-        LocalDraftReprojector(this).reproject(SessionId(sessionId), mode)
     }
 
     suspend fun revisions(claimId: String): List<DraftFieldRevision> =

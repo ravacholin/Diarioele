@@ -127,6 +127,18 @@ class PagesAndExercisesComposerTest {
         )
     }
 
+    @Test
+    fun `explicit relation never falls back to a different accepted page`() {
+        val result = composer.compose(
+            listOf(
+                claim("p1", ClaimCategory.PAGE, "1", excerpt = "página 1"),
+                claim("e8", ClaimCategory.EXERCISE, "8 (p. 7)", excerpt = "ejercicio 8 en la página 7"),
+            ),
+        )
+
+        assertEquals("Página 1\nEjercicio sin página: 8", result)
+    }
+
     private fun claim(
         id: String,
         category: ClaimCategory,
