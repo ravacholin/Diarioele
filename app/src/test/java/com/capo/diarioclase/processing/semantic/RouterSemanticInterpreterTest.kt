@@ -68,6 +68,42 @@ class RouterSemanticInterpreterTest {
     }
 
     @Test
+    fun `local hints reach the provider request`() = runTest {
+        val gemini = FakeInferenceProviderClient(
+            InferenceProvider.GEMINI,
+            FakeInferenceProviderClient.success(InferenceProvider.GEMINI, validJson),
+        )
+        val signals = LocalInterpretationSignals(
+            markers = listOf(ManualMarkerSignal(markerId = "m1", type = "HOMEWORK", blockId = "blk", offsetMs = 2_500)),
+        )
+        interpreter(
+            clients = mapOf(InferenceProvider.GEMINI to gemini),
+            providers = listOf(ProviderModel(InferenceProvider.GEMINI, "gemini-free")),
+        ).interpret(SessionId("s"), spans, InterpretationBudget(), signals)
+
+        val hints = gemini.requests.single().hints
+        assertTrue("faltó la pista de página: $hints", hints.any { it.contains("posible página 42") })
+        assertTrue("faltó la pista del marcador: $hints", hints.any { it.contains("marca de tarea") })
+    }
+
+    @Test
+    fun `remote summary flows into the interpretation outcome`() = runTest {
+        val jsonWithSummary =
+            """{"summary":"Vimos la página 42.","claims":[{"claim_key":"B1-C1","category":"PAGE",""" +
+                """"value":"42","normalized_value":"42","status":"PERFORMED","confidence":0.95,""" +
+                """"evidence_span_ids":["B1-S1"],"supersedes_claim_keys":[]}]}"""
+        val gemini = FakeInferenceProviderClient(
+            InferenceProvider.GEMINI,
+            FakeInferenceProviderClient.success(InferenceProvider.GEMINI, jsonWithSummary),
+        )
+        val outcome = interpreter(
+            clients = mapOf(InferenceProvider.GEMINI to gemini),
+            providers = listOf(ProviderModel(InferenceProvider.GEMINI, "gemini-free")),
+        ).interpret(SessionId("s"), spans)
+        assertEquals("Vimos la página 42.", outcome.summary)
+    }
+
+    @Test
     fun `a valid gemini response yields remote claims`() = runTest {
         val validJson = ProviderClaimsCodec.encode(
             listOf(ProviderSemanticClaim("B1-C1", "PAGE", "42", "42", "PERFORMED", 0.95, listOf("B1-S1"), emptyList())),

@@ -25,8 +25,8 @@ class InterpretationPacketBuilder(
     private val maxRequestBytes: Int = 48_000,
     private val preferredPauseMs: Long = 4_000,
     private val overlapSpans: Int = 2,
-    private val promptVersion: String = "free-ele-v1",
-    private val schemaVersion: String = "claims-v1",
+    private val promptVersion: String = "free-ele-v2",
+    private val schemaVersion: String = "claims-v2",
     private val requestSizer: InterpretationRequestSizer = InterpretationRequestSizer(),
 ) {
 

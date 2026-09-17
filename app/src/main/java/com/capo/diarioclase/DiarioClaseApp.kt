@@ -95,6 +95,7 @@ class DiarioClaseApp : Application() {
                 DiarioDatabase.MIGRATION_4_5,
                 DiarioDatabase.MIGRATION_5_6,
                 DiarioDatabase.MIGRATION_6_7,
+                DiarioDatabase.MIGRATION_7_8,
             )
             .build()
         repository = RoomSessionRepository(database, SystemClock)

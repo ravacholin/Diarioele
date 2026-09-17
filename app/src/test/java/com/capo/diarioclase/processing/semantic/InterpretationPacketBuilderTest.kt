@@ -141,8 +141,8 @@ class InterpretationPacketBuilderTest {
     fun `packet carries the frozen prompt and schema versions`() {
         val spans = listOf(transcriptSpan(block = "b", segment = "s", start = 0, end = 1_000, text = "hola"))
         val packet = InterpretationPacketBuilder().build(spans).single()
-        assertEquals("free-ele-v1", packet.request.promptVersion)
-        assertEquals("claims-v1", packet.request.schemaVersion)
+        assertEquals("free-ele-v2", packet.request.promptVersion)
+        assertEquals("claims-v2", packet.request.schemaVersion)
     }
 
     @Test

@@ -26,7 +26,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ClaimSupersessionEntity::class,
         DraftFieldRevisionEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class DiarioDatabase : RoomDatabase() {
@@ -134,6 +134,18 @@ abstract class DiarioDatabase : RoomDatabase() {
                 )
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_draft_field_revisions_sessionId ON draft_field_revisions(sessionId)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_draft_field_revisions_claimId ON draft_field_revisions(claimId)")
+            }
+        }
+
+        /**
+         * v7→v8: ficha más rica (Nivel 3). Agrega `reason` a cada claim y `summary` a la ficha.
+         * Es aditiva y no destructiva: `reason` es nullable y `summary` trae default vacío para
+         * las filas legacy.
+         */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE evidence_claims ADD COLUMN reason TEXT")
+                db.execSQL("ALTER TABLE diary_drafts ADD COLUMN summary TEXT NOT NULL DEFAULT ''")
             }
         }
     }
