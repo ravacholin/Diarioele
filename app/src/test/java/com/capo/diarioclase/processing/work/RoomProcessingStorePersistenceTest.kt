@@ -169,7 +169,7 @@ class RoomProcessingStorePersistenceTest {
             }.exceptionOrNull()
 
             assertEquals(IllegalArgumentException::class, failure!!::class)
-            assertEquals(emptyList<DraftFieldRevision>(), store.revisions("missing"))
+            assertEquals(0, store.revisions("missing").size)
         } finally {
             database.close()
             context.deleteDatabase(name)
