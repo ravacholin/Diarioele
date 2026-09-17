@@ -50,7 +50,7 @@ class TranscriptionCoordinatorTest {
 
         assertTrue(result is ProcessingOutcome.Complete)
         assertEquals(listOf("a", "b"), store.completedSegments)
-        assertEquals("42 (3)", store.generatedDraft?.pages)
+        assertEquals("Página 42: ejercicio 3", store.generatedDraft?.pages)
         assertEquals("", store.generatedDraft?.exercises)
         assertEquals(SessionState.AWAITING_REVIEW, store.state)
         assertEquals(TranscriptionRunState.COMPLETED.name, store.savedRun?.state)
@@ -74,7 +74,7 @@ class TranscriptionCoordinatorTest {
 
         val text = PagesAndExercisesComposer().compose(claims)
 
-        assertEquals("14 (3, a, b, 8)\n22 (1, 2)", text)
+        assertEquals("Página 14: ejercicios 3, a, b y 8\nPágina 22: ejercicios 1 y 2", text)
     }
 
     @Test

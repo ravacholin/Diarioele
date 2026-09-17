@@ -8,6 +8,11 @@ import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
 import com.capo.diarioclase.core.clock.Clock
 import com.capo.diarioclase.processing.evidence.DiaryDraft
+import com.capo.diarioclase.processing.evidence.ClaimCategory
+import com.capo.diarioclase.processing.evidence.ClaimOrigin
+import com.capo.diarioclase.processing.evidence.ClaimStatus
+import com.capo.diarioclase.processing.evidence.EvidenceClaim
+import com.capo.diarioclase.processing.evidence.EvidenceRef
 import com.capo.diarioclase.processing.evidence.InterpretationMode
 import com.capo.diarioclase.processing.work.RoomProcessingStore
 import kotlinx.coroutines.test.runTest
@@ -193,7 +198,22 @@ class DiarioMigrationTest {
             store.saveFieldEdit(SessionId("s2"), com.capo.diarioclase.processing.semantic.DiaryField.HOMEWORK, "Ejercicio 4")
             assertTrue(store.isFieldEdited(SessionId("s2"), com.capo.diarioclase.processing.semantic.DiaryField.HOMEWORK))
             assertFalse(store.isFieldEdited(SessionId("s2"), com.capo.diarioclase.processing.semantic.DiaryField.TOPICS))
-            store.saveEvidence(SessionId("s2"), emptyList(), DiaryDraft("s2", InterpretationMode.CONSERVATIVE, "Auto 2", "", "", "", "Tarea automática", emptyList(), emptyList()))
+            store.saveEvidence(
+                SessionId("s2"),
+                listOf(
+                    EvidenceClaim(
+                        id = "claim-1",
+                        category = ClaimCategory.PAGE,
+                        value = "1",
+                        normalizedValue = "1",
+                        status = ClaimStatus.PERFORMED,
+                        confidence = 1.0,
+                        origin = ClaimOrigin.LOCAL_RULE,
+                        evidence = EvidenceRef(BlockId("b"), 0, 1, "página 1"),
+                    ),
+                ),
+                DiaryDraft("s2", InterpretationMode.CONSERVATIVE, "Auto 2", "", "", "", "Tarea automática", emptyList(), emptyList()),
+            )
             val protected = database.sessions().draft("s2")!!
             assertEquals("Ejercicio 4", protected.homework) // protegida
             assertEquals("Auto 2", protected.topics) // no editada, se actualiza

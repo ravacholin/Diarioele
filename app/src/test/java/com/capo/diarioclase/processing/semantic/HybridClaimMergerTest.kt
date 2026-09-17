@@ -27,7 +27,7 @@ class HybridClaimMergerTest {
     }
 
     @Test
-    fun `remote numeric conflict cannot delete grounded local claim`() {
+    fun `a later explicit page does not delete the first grounded page`() {
         val local = page("42", ClaimOrigin.LOCAL_RULE, startMs = 0, endMs = 1_000)
         // La página remota está anclada en su propia evidencia ("noventa y nueve"), pero
         // contradice a la página local con evidencia: pasa a UNCERTAIN, no se borra la local.
@@ -37,7 +37,19 @@ class HybridClaimMergerTest {
         )
         val result = merger.merge(listOf(local), listOf(remote))
         assertTrue(result.any { it.normalizedValue == "42" && it.active })
-        assertTrue(result.any { it.normalizedValue == "99" && it.status == ClaimStatus.UNCERTAIN })
+        assertTrue(result.any { it.normalizedValue == "99" && it.status == ClaimStatus.PERFORMED })
+    }
+
+    @Test
+    fun `two explicit pages in one excerpt are not treated as a contradiction`() {
+        val excerpt = "página 1 ejercicio 2 página 2 ejercicio 3 y 4"
+        val local = page("1", ClaimOrigin.LOCAL_RULE, startMs = 0, endMs = 1_000)
+        val remoteFirst = remotePage(value = "1", excerpt = excerpt, quote = "página 1")
+        val remoteSecond = remotePage(value = "2", excerpt = excerpt, quote = "página 2")
+
+        val result = merger.merge(listOf(local), listOf(remoteFirst, remoteSecond))
+
+        assertEquals(ClaimStatus.PERFORMED, result.single { it.normalizedValue == "2" }.status)
     }
 
     @Test

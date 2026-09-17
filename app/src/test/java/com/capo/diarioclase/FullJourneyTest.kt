@@ -310,7 +310,7 @@ class FullJourneyTest {
             first.close()
         }
 
-        assertEquals("14 (3)", firstPages)
+        assertEquals("Página 14: ejercicio 3", firstPages)
         assertEquals("4", firstHomework)
         assertEquals(2, providerCalls) // un paquete por bloque
 
