@@ -66,7 +66,10 @@ class SemanticIntegrityEvaluationTest {
                     expect(ClaimCategory.EXERCISE, "4", ClaimStatus.ASSIGNED),
                 ),
                 prohibited = setOf(expect(ClaimCategory.EXERCISE, "4", ClaimStatus.PERFORMED)),
-                expectedFields = mapOf(DiaryField.PAGES to "3", DiaryField.HOMEWORK to "4"),
+                expectedFields = mapOf(
+                    DiaryField.PAGES to "Ejercicio sin página: 3",
+                    DiaryField.HOMEWORK to "4",
+                ),
             ),
         )
     }
@@ -92,7 +95,7 @@ class SemanticIntegrityEvaluationTest {
             expectation = SemanticExpectation(
                 required = setOf(expect(ClaimCategory.PAGE, "40", ClaimStatus.PERFORMED)),
                 prohibited = setOf(expect(ClaimCategory.PAGE, "38", ClaimStatus.PERFORMED)),
-                expectedFields = mapOf(DiaryField.PAGES to "40"),
+                expectedFields = mapOf(DiaryField.PAGES to "Página 40"),
             ),
         )
     }
@@ -120,7 +123,7 @@ class SemanticIntegrityEvaluationTest {
                     expect(ClaimCategory.PAGE, "20", ClaimStatus.PERFORMED),
                     expect(ClaimCategory.EXERCISE, "2", ClaimStatus.PERFORMED),
                 ),
-                expectedFields = mapOf(DiaryField.PAGES to "20 (2)"),
+                expectedFields = mapOf(DiaryField.PAGES to "Página 20: ejercicio 2"),
             ),
         )
     }
@@ -194,7 +197,7 @@ class SemanticIntegrityEvaluationTest {
             expectation = SemanticExpectation(
                 required = setOf(expect(ClaimCategory.PAGE, "12", ClaimStatus.PERFORMED)),
                 prohibited = setOf(expect(ClaimCategory.PAGE, "20", ClaimStatus.PERFORMED)),
-                expectedFields = mapOf(DiaryField.PAGES to "12"),
+                expectedFields = mapOf(DiaryField.PAGES to "Página 12"),
             ),
         )
     }

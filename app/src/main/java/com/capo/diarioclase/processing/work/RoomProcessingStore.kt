@@ -345,30 +345,31 @@ class RoomProcessingStore(
      * Aplica una decisión de revisión sobre un claim (aceptar/rechazar/corregir). Escribe la
      * revisión antes de actualizar el claim. Corregir exige un valor no vacío. Sin red ni scheduler.
      */
-    suspend fun reviewClaim(claimId: String, action: ReviewAction, correctedValue: String?): Unit =
-        database.withTransaction {
+    suspend fun reviewClaim(claimId: String, action: ReviewAction, correctedValue: String?) {
+        val sessionId = database.withTransaction {
             if (action == ReviewAction.CORRECT) require(!correctedValue.isNullOrBlank())
-            val claim = requireNotNull(dao.claimById(claimId)) { "No existe el elemento por revisar." }
-            val before = claim.value
+            val claim = dao.claimById(claimId)
+            val before = claim?.value.orEmpty()
             val after = when (action) {
                 ReviewAction.CORRECT -> correctedValue.orEmpty()
                 ReviewAction.REJECT -> ""
                 ReviewAction.ACCEPT -> before
             }
-            val field = categoryField(claim.category).name
-            dao.insertRevision(revision(claim.sessionId, field, before, after, action, claimId))
+            val field = claim?.let { categoryField(it.category) }?.name.orEmpty()
+            dao.insertRevision(revision(claim?.sessionId.orEmpty(), field, before, after, action, claimId))
             when (action) {
                 ReviewAction.ACCEPT -> dao.acceptClaim(claimId)
                 ReviewAction.REJECT -> dao.setClaimActive(claimId, false)
                 ReviewAction.CORRECT -> dao.correctClaim(claimId, correctedValue!!, correctedValue)
             }
-            claim.sessionId
-        }.let { sessionId ->
-            val mode = dao.draft(sessionId)?.mode
-                ?.let { runCatching { com.capo.diarioclase.processing.evidence.InterpretationMode.valueOf(it) }.getOrNull() }
-                ?: com.capo.diarioclase.processing.evidence.InterpretationMode.CONSERVATIVE
-            LocalDraftReprojector(this).reproject(SessionId(sessionId), mode)
+            claim?.sessionId
         }
+        if (sessionId == null) return
+        val mode = dao.draft(sessionId)?.mode
+            ?.let { runCatching { com.capo.diarioclase.processing.evidence.InterpretationMode.valueOf(it) }.getOrNull() }
+            ?: com.capo.diarioclase.processing.evidence.InterpretationMode.CONSERVATIVE
+        LocalDraftReprojector(this).reproject(SessionId(sessionId), mode)
+    }
 
     suspend fun revisions(claimId: String): List<DraftFieldRevision> =
         dao.revisionsForClaim(claimId).map { it.toDomain() }

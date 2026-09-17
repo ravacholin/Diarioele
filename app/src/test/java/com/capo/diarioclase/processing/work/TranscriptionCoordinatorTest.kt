@@ -241,7 +241,7 @@ class TranscriptionCoordinatorTest {
         assertEquals(InterpretationMode.EXHAUSTIVE, draft.mode)
         assertEquals("Tema manual", draft.topics)
         assertEquals("Actividad manual", draft.activities)
-        assertEquals("Página 12", draft.pages)
+        assertEquals("12", draft.pages)
         assertEquals("3", draft.exercises)
         assertEquals("Tarea manual", draft.homework)
     }

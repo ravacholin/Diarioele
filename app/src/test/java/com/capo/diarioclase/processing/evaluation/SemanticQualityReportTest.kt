@@ -41,7 +41,7 @@ class SemanticQualityReportTest {
                 ClaimExpectation(ClaimCategory.PAGE, "20", ClaimStatus.PERFORMED),
                 ClaimExpectation(ClaimCategory.EXERCISE, "2", ClaimStatus.PERFORMED),
             ),
-            expectedFields = mapOf(DiaryField.PAGES to "20 (2)"),
+            expectedFields = mapOf(DiaryField.PAGES to "Página 20: ejercicio 2"),
         )
 
         val summary = runner.summarize(listOf(packet), expectation)
