@@ -24,6 +24,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CleanupCoordinatorTest {
+    @Test fun `cleanup never starts when permanent editorial save is refused`() = runTest {
+        val events = mutableListOf<String>()
+        val diaries = MemoryDiaries(events, saveFailure = "La ficha final todavía se está generando")
+        val cleanup = MemoryCleanup(events, listOf(SegmentId("a")))
+        val files = MemoryFiles(events)
+
+        val result = CleanupCoordinator(diaries, files, cleanup, Clock { 1_000 })
+            .approveAndClean(SessionId("s"), draft())
+
+        assertTrue(result is CleanupOutcome.SaveFailed)
+        assertEquals(listOf("save"), events)
+        assertTrue(files.deleted.isEmpty())
+        assertFalse(cleanup.deletedSessionRows)
+    }
     @Test fun `diary is verified before any deletion`() = runTest {
         val events = mutableListOf<String>()
         val diaries = MemoryDiaries(events)
@@ -159,6 +173,7 @@ class CleanupCoordinatorTest {
 private class MemoryDiaries(
     private val events: MutableList<String>,
     private val rereadMatches: Boolean = true,
+    private val saveFailure: String? = null,
 ) : DiaryRepository {
     var entry: DiaryEntry? = null
     var saveCalls = 0
@@ -166,6 +181,7 @@ private class MemoryDiaries(
     override suspend fun saveVerified(sessionId: SessionId, draft: DiaryDraftEntity): DiarySaveResult {
         events += "save"
         saveCalls += 1
+        saveFailure?.let { return DiarySaveResult.Failed(it) }
         val current = entry ?: DiaryEntry(
             id = "diary-${sessionId.value}",
             sessionId = sessionId,

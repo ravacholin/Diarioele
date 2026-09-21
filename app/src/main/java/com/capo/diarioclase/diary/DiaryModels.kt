@@ -19,6 +19,16 @@ data class DiaryEntry(
     val approvedAtEpochMs: Long,
     val updatedAtEpochMs: Long,
     val temporariesDeleted: Boolean,
+    val reportSummary: String = "",
+    val reportMaterial: String = "",
+    val reportHomework: String = "",
+    val reportAuditJson: String = "",
+    val reportProvider: String? = null,
+    val reportModelId: String? = null,
+    val reportInputHash: String = "",
+    val reportPromptVersion: String = "",
+    val reportSchemaVersion: String = "",
+    val reportValidatorVersion: String = "",
 )
 
 sealed interface DiarySaveResult {

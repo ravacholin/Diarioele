@@ -1,6 +1,29 @@
 # Fase 5: estado y continuidad
 
-Última actualización: 2026-09-16
+Última actualización: 2026-09-21
+
+## Candidato 0.8.0 — segunda pasada editorial
+
+- Rama: `feature/second-pass-editorial-report`.
+- Base: `3b68e36` (diseño y plan aprobados).
+- Head de implementación: `22db921`.
+- Versión: `0.8.0-editorial-pass`, `versionCode 15`.
+- Código fuente: Tasks 1–9 implementadas. La segunda IA recibe únicamente claims aceptados,
+  devuelve Resumen / Material trabajado / Tarea con referencias auditables, y el cliente conserva
+  literalmente la prosa validada. Una corrección invalida el reporte; aprobar exige `READY` y copia
+  el informe permanente antes de borrar temporales.
+- Persistencia: Room 9 y migración 8→9. El esquema `9.json` fue generado mecánicamente porque KSP
+  no pudo ejecutarse; su `identityHash` es provisional y debe regenerarse con KSP antes del release.
+- Verificación intentada: pruebas específicas de cada tarea y
+  `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest`.
+- Resultado: BLOQUEADA antes de compilación. El wrapper intenta descargar Gradle 8.13 desde
+  `services.gradle.org` y falla con `java.net.SocketException: Network is unreachable`. Por ello no
+  hay conteo de tests, lint, APK ni APK de instrumentación verificables en este entorno.
+- Escaneo de secretos: sin credenciales reales; las coincidencias son patrones documentales o claves
+  ficticias de tests. No se generó ningún APK para inspeccionar.
+- Prueba física: PENDIENTE según `SECOND_PASS_REPORT_DEVICE_TEST.md`; no declarar la versión final.
+- Siguiente acción exacta: en un entorno con Gradle/dependencias disponibles, regenerar el esquema 9,
+  ejecutar la verificación completa, registrar SHA de los APK y completar el protocolo en Moto g max.
 
 ## Estado actual
 

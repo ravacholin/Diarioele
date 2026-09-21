@@ -34,3 +34,6 @@ data class ArchiveUiState(
     val busy: Boolean = false,
     val searching: Boolean = true,
 )
+
+internal fun DiaryEntry.hasEditorialReport() =
+    reportSummary.isNotBlank() || reportMaterial.isNotBlank() || reportHomework.isNotBlank()

@@ -7,6 +7,7 @@ import com.capo.diarioclase.processing.evidence.InterpretationMode
 import com.capo.diarioclase.processing.transcription.TranscriptionFailure
 import com.capo.diarioclase.processing.work.TranscriptionProgress
 import com.capo.diarioclase.processing.work.TranscriptionRunState
+import com.capo.diarioclase.processing.editorial.EditorialReportState
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.*
@@ -15,6 +16,19 @@ import org.junit.Assert.*
 import org.junit.Test
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class CaptureViewModelTest {
+ @Test fun `stale editorial report is exposed after review`()=runTest{
+  val report=RecordingReport(SessionId("s"),"2026-09-21",emptyList(),SessionState.AWAITING_REVIEW)
+  val draft=DiaryDraftEntity("draft","s","CONSERVATIVE","tema","actividad","1","2","tarea",1)
+  val editorial=MutableStateFlow<EditorialReportEntity?>(readyEditorialEntity().copy(state="STALE"))
+  val vm=CaptureViewModel(UiSessions(null,report),UiActions(),backgroundScope,flowOf(draft),editorialReports=editorial);runCurrent()
+  assertEquals(EditorialReportState.STALE,vm.state.value.editorial?.state)
+  assertNull(vm.state.value.editorial?.report)
+ }
+ @Test fun `regenerate editorial report never schedules transcription`()=runTest{
+  val actions=UiActions();val vm=reviewViewModel(actions,backgroundScope);runCurrent()
+  vm.onRegenerateEditorialReport(InterpretationMode.BALANCED);runCurrent()
+  assertEquals(1,actions.editorialCalls);assertNull(actions.startedSessionId);assertNull(actions.resumedSessionId)
+ }
  @Test fun `draft editor locks while mode reprocessing is busy`(){assertTrue(draftEditorEnabled(false));assertFalse(draftEditorEnabled(true))}
  @Test fun `changing mode reprojects locally without scheduling reprocessing`()=runTest{
   val report=RecordingReport(SessionId("s"),"2026-09-11",emptyList(),SessionState.AWAITING_REVIEW)
@@ -54,7 +68,7 @@ class CaptureViewModelTest {
   val report=RecordingReport(SessionId("s"),"2026-09-11",emptyList(),SessionState.AWAITING_REVIEW)
   val draft=DiaryDraftEntity("draft","s","CONSERVATIVE","tema","actividad","1","2","tarea",1)
   val repository=UiSessions(null,report)
-  val vm=CaptureViewModel(repository,UiActions(),backgroundScope,flowOf(draft));runCurrent()
+  val vm=CaptureViewModel(repository,UiActions(),backgroundScope,flowOf(draft),editorialReports=flowOf(readyEditorialEntity()));runCurrent()
   vm.onApprove("tema","actividad","1","2","tarea");runCurrent();assertEquals(CaptureStatus.ARCHIVED,vm.state.value.status)
   repository.emit(SessionAggregate(SessionId("next-day"),null,SessionState.RECORDING,listOf(BlockId("next-block")),0));runCurrent()
   assertEquals(CaptureStatus.RECORDING,vm.state.value.status);assertEquals(SessionId("next-day"),vm.state.value.sessionId)
@@ -186,8 +200,12 @@ class CaptureViewModelTest {
  }
  private fun reviewViewModel(actions:CaptureActions,scope:kotlinx.coroutines.CoroutineScope):CaptureViewModel{
   val report=RecordingReport(SessionId("s"),"2026-09-11",emptyList(),SessionState.AWAITING_REVIEW);val draft=DiaryDraftEntity("draft","s","CONSERVATIVE","tema","actividad","1","2","tarea",1)
-  return CaptureViewModel(UiSessions(null,report),actions,scope,flowOf(draft))
+  return CaptureViewModel(UiSessions(null,report),actions,scope,flowOf(draft),editorialReports=flowOf(readyEditorialEntity()))
  }
 }
+private fun readyEditorialEntity()=EditorialReportEntity(
+ "s","hash","READY","{\"summary\":\"Resumen\",\"material\":[],\"homework\":[],\"summary_source_claim_ids\":[],\"discarded\":[]}",
+ "Resumen","","","GEMINI","gemini-2.5-flash","p","s","v",null,1,
+)
 private class UiSessions(initial:SessionAggregate?,report:RecordingReport?=null):SessionRepository{private val flow=MutableStateFlow(initial);private val reportFlow=MutableStateFlow(report);fun emit(x:SessionAggregate?){flow.value=x};override fun observeActiveSession():Flow<SessionAggregate?> = flow;override fun observeLatestFinalizedRecording():Flow<RecordingReport?> = reportFlow;override suspend fun createSession(level:CerLevel?)=SessionId("s");override suspend fun startBlock(sessionId:SessionId)=BlockId("b");override suspend fun closeBlock(blockId:BlockId,reason:BlockCloseReason){};override suspend fun finalizeSession(sessionId:SessionId){};override suspend fun updateSessionState(sessionId:SessionId,state:SessionState){} }
-private class UiActions:CaptureActions{var pauses=0;var approvalCalls=0;var approvedDraft:DiaryDraftEntity?=null;var cleanupResult:CleanupOutcome=CleanupOutcome.Archived("diary");var retryResult:CleanupOutcome=CleanupOutcome.Archived("diary");var retriedSessionId:SessionId?=null;var startedSessionId:SessionId?=null;var startedMode:InterpretationMode?=null;var resumedSessionId:SessionId?=null;var resumedMode:InterpretationMode?=null;var pausedProcessingId:SessionId?=null;var holdApproval=false;override suspend fun startNewDay(){};override suspend fun resume(id:SessionId){};override suspend fun pause(){pauses++};override suspend fun markHomework(sessionId:SessionId,blockId:BlockId){};override suspend fun finalizeDay(id:SessionId,state:SessionState){};override suspend fun startProcessing(id:SessionId,mode:InterpretationMode){startedSessionId=id;startedMode=mode};override suspend fun pauseProcessing(id:SessionId){pausedProcessingId=id};override suspend fun resumeProcessing(id:SessionId,mode:InterpretationMode){resumedSessionId=id;resumedMode=mode};override suspend fun approveAndClean(draft:DiaryDraftEntity):CleanupOutcome{approvalCalls++;approvedDraft=draft;if(holdApproval)awaitCancellation();return cleanupResult};override suspend fun retryCleanup(sessionId:SessionId):CleanupOutcome{retriedSessionId=sessionId;return retryResult};val reviews=mutableListOf<Triple<String,ReviewAction,String?>>();override suspend fun reviewClaim(sessionId:SessionId,claimId:String,action:ReviewAction,correctedValue:String?){reviews+=Triple(claimId,action,correctedValue)}}
+private class UiActions:CaptureActions{var pauses=0;var approvalCalls=0;var editorialCalls=0;var approvedDraft:DiaryDraftEntity?=null;var cleanupResult:CleanupOutcome=CleanupOutcome.Archived("diary");var retryResult:CleanupOutcome=CleanupOutcome.Archived("diary");var retriedSessionId:SessionId?=null;var startedSessionId:SessionId?=null;var startedMode:InterpretationMode?=null;var resumedSessionId:SessionId?=null;var resumedMode:InterpretationMode?=null;var pausedProcessingId:SessionId?=null;var holdApproval=false;override suspend fun startNewDay(){};override suspend fun resume(id:SessionId){};override suspend fun pause(){pauses++};override suspend fun markHomework(sessionId:SessionId,blockId:BlockId){};override suspend fun finalizeDay(id:SessionId,state:SessionState){};override suspend fun startProcessing(id:SessionId,mode:InterpretationMode){startedSessionId=id;startedMode=mode};override suspend fun pauseProcessing(id:SessionId){pausedProcessingId=id};override suspend fun resumeProcessing(id:SessionId,mode:InterpretationMode){resumedSessionId=id;resumedMode=mode};override suspend fun regenerateEditorialReport(id:SessionId,mode:InterpretationMode){editorialCalls++};override suspend fun approveAndClean(draft:DiaryDraftEntity):CleanupOutcome{approvalCalls++;approvedDraft=draft;if(holdApproval)awaitCancellation();return cleanupResult};override suspend fun retryCleanup(sessionId:SessionId):CleanupOutcome{retriedSessionId=sessionId;return retryResult};val reviews=mutableListOf<Triple<String,ReviewAction,String?>>();override suspend fun reviewClaim(sessionId:SessionId,claimId:String,action:ReviewAction,correctedValue:String?){reviews+=Triple(claimId,action,correctedValue)}}

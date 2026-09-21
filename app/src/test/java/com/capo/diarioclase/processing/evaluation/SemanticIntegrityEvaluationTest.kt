@@ -1,12 +1,22 @@
 package com.capo.diarioclase.processing.evaluation
 
+import com.capo.diarioclase.data.db.BlockId
+import com.capo.diarioclase.processing.editorial.EditorialIssue
+import com.capo.diarioclase.processing.editorial.EditorialReportPacketBuilder
+import com.capo.diarioclase.processing.editorial.EditorialReportValidator
+import com.capo.diarioclase.processing.editorial.EditorialValidationOutcome
 import com.capo.diarioclase.processing.evidence.ClaimCategory
+import com.capo.diarioclase.processing.evidence.ClaimOrigin
 import com.capo.diarioclase.processing.evidence.ClaimStatus
+import com.capo.diarioclase.processing.evidence.EvidenceClaim
+import com.capo.diarioclase.processing.evidence.EvidenceRef
+import com.capo.diarioclase.processing.evidence.InterpretationMode
 import com.capo.diarioclase.processing.semantic.DiaryField
 import com.capo.diarioclase.processing.semantic.ProviderSemanticClaim
 import com.capo.diarioclase.processing.semantic.PublicSpanId
 import com.capo.diarioclase.processing.semantic.PublicTranscriptSpan
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -34,6 +44,29 @@ class SemanticIntegrityEvaluationTest {
         ).forEach { scenario ->
             runner.assertMatches(scenario.packets, scenario.expectation)
         }
+    }
+
+    @Test
+    fun `editorial gate separates omissions from first pass extraction`() {
+        val oldPage = editorialClaim("old-page", ClaimCategory.PAGE, "45", "45", 1).copy(active = false)
+        val claims = listOf(
+            oldPage,
+            editorialClaim("pages", ClaimCategory.PAGE, "Páginas 47 a 49", "47-49", 2),
+            editorialClaim("done", ClaimCategory.EXERCISE, "Ejercicios 3 y 5", "3,5", 3),
+            editorialClaim("assigned", ClaimCategory.EXERCISE, "Ejercicio 4", "4", 4, ClaimStatus.ASSIGNED),
+            editorialClaim("noise", ClaimCategory.TOPIC, "Comentario administrativo", "comentario administrativo", 5),
+        )
+        val request = EditorialReportPacketBuilder().build("evaluation", InterpretationMode.CONSERVATIVE, claims)
+        val valid = """{"summary":"","material":[{"text":"Páginas 47 a 49, ejercicios 3 y 5.","source_claim_ids":["pages","done"]}],"homework":[{"text":"Ejercicio 4 para casa.","source_claim_ids":["assigned"]}],"summary_source_claim_ids":[],"discarded":[{"claim_id":"noise","reason":"No describe contenido, páginas, ejercicios ni tarea."}]}"""
+
+        assertTrue(EditorialReportValidator().validate(valid, request) is EditorialValidationOutcome.Valid)
+
+        val omitted = valid.replace("[\"pages\",\"done\"]", "[\"pages\"]")
+        val outcome = EditorialReportValidator().validate(omitted, request)
+        assertTrue(outcome is EditorialValidationOutcome.Invalid)
+        outcome as EditorialValidationOutcome.Invalid
+        assertTrue(EditorialIssue.MISSING_CLAIM in outcome.issues)
+        assertTrue("done" in outcome.missingClaimIds)
     }
 
     private data class IntegrityScenario(
@@ -66,7 +99,10 @@ class SemanticIntegrityEvaluationTest {
                     expect(ClaimCategory.EXERCISE, "4", ClaimStatus.ASSIGNED),
                 ),
                 prohibited = setOf(expect(ClaimCategory.EXERCISE, "4", ClaimStatus.PERFORMED)),
-                expectedFields = mapOf(DiaryField.PAGES to "3", DiaryField.HOMEWORK to "4"),
+                expectedFields = mapOf(
+                    DiaryField.PAGES to "Ejercicio sin página: 3",
+                    DiaryField.HOMEWORK to "4",
+                ),
             ),
         )
     }
@@ -92,7 +128,7 @@ class SemanticIntegrityEvaluationTest {
             expectation = SemanticExpectation(
                 required = setOf(expect(ClaimCategory.PAGE, "40", ClaimStatus.PERFORMED)),
                 prohibited = setOf(expect(ClaimCategory.PAGE, "38", ClaimStatus.PERFORMED)),
-                expectedFields = mapOf(DiaryField.PAGES to "40"),
+                expectedFields = mapOf(DiaryField.PAGES to "Página 40"),
             ),
         )
     }
@@ -120,7 +156,7 @@ class SemanticIntegrityEvaluationTest {
                     expect(ClaimCategory.PAGE, "20", ClaimStatus.PERFORMED),
                     expect(ClaimCategory.EXERCISE, "2", ClaimStatus.PERFORMED),
                 ),
-                expectedFields = mapOf(DiaryField.PAGES to "20 (2)"),
+                expectedFields = mapOf(DiaryField.PAGES to "Página 20: ejercicio 2"),
             ),
         )
     }
@@ -194,7 +230,7 @@ class SemanticIntegrityEvaluationTest {
             expectation = SemanticExpectation(
                 required = setOf(expect(ClaimCategory.PAGE, "12", ClaimStatus.PERFORMED)),
                 prohibited = setOf(expect(ClaimCategory.PAGE, "20", ClaimStatus.PERFORMED)),
-                expectedFields = mapOf(DiaryField.PAGES to "12"),
+                expectedFields = mapOf(DiaryField.PAGES to "Página 12"),
             ),
         )
     }
@@ -239,4 +275,16 @@ class SemanticIntegrityEvaluationTest {
         evidenceSpanIds = evidenceSpanIds,
         supersedesClaimKeys = supersedes,
     )
+
+    private fun editorialClaim(
+        id: String,
+        category: ClaimCategory,
+        value: String,
+        normalized: String,
+        span: Int,
+        status: ClaimStatus = ClaimStatus.PERFORMED,
+    ): EvidenceClaim {
+        val evidence = EvidenceRef(BlockId("eval-block"), span.toLong(), span.toLong() + 1, value, 0, 0, span)
+        return EvidenceClaim(id, category, value, normalized, status, .99, ClaimOrigin.SEMANTIC, evidence, evidences = listOf(evidence))
+    }
 }

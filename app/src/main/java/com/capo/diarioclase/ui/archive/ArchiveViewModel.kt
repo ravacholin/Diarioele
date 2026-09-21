@@ -114,11 +114,18 @@ class ArchiveViewModel(
             // Reread the permanent record: never overwrite cleanup flags/timestamps from a stale editor.
             val latest = repository.getBySession(selected.sessionId)
             check(latest?.id == selected.id) { "Este diario ya no está disponible" }
-            repository.update(latest!!.copy(
-                pedagogicalDate = fields.pedagogicalDate, level = fields.level,
-                topics = fields.topics, activities = fields.activities, pages = fields.pages,
-                completedExercises = fields.completedExercises, homework = fields.homework,
-            ))
+            repository.update(
+                if (latest!!.hasEditorialReport()) {
+                    // The audited report is immutable. Archive edits may only change metadata.
+                    latest.copy(pedagogicalDate = fields.pedagogicalDate, level = fields.level)
+                } else {
+                    latest.copy(
+                        pedagogicalDate = fields.pedagogicalDate, level = fields.level,
+                        topics = fields.topics, activities = fields.activities, pages = fields.pages,
+                        completedExercises = fields.completedExercises, homework = fields.homework,
+                    )
+                },
+            )
             _state.update { it.copy(editableFields = null, message = "Cambios guardados") }
         }
     }

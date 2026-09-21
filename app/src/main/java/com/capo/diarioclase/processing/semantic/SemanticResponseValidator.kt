@@ -6,6 +6,7 @@ import com.capo.diarioclase.processing.evidence.ClaimOrigin
 import com.capo.diarioclase.processing.evidence.ClaimStatus
 import com.capo.diarioclase.processing.evidence.EvidenceRef
 import com.capo.diarioclase.processing.evidence.RawClaim
+import com.capo.diarioclase.processing.evidence.SpanishNumberNormalizer as WordNumbers
 
 /**
  * Valida una respuesta cruda de un proveedor contra los spans locales del paquete (Task 5).
@@ -94,12 +95,25 @@ class SemanticResponseValidator(
                 claimKey = claim.claimKey,
                 evidences = evidences,
                 supersedesClaimKeys = claim.supersedesClaimKeys,
+                evidenceQuote = verifiedQuote(claim.evidenceQuote, evidenceSpans),
+                reason = claim.reason,
             )
         }
 
         if (hasSupersessionCycle(parsed)) return invalid(ValidationFailure.SUPERSEDE_CYCLE)
 
-        return ValidationOutcome.Valid(result)
+        return ValidationOutcome.Valid(result, ProviderClaimsCodec.summaryOf(rawJson))
+    }
+
+    /**
+     * Conserva [quote] solo si su forma normalizada es substring de un span citado no-contexto.
+     * Así una cita inventada por el modelo nunca sirve para anclar un número (anti-invención);
+     * una cita real habilita el rescate del claim en la fusión (Nivel 2). No usa red.
+     */
+    private fun verifiedQuote(quote: String?, evidenceSpans: List<PublicTranscriptSpan>): String? {
+        val normalized = quote?.let { WordNumbers.normalize(it) }?.takeIf { it.isNotBlank() } ?: return null
+        val backed = evidenceSpans.any { !it.contextOnly && WordNumbers.normalize(it.text).contains(normalized) }
+        return if (backed) quote else null
     }
 
     private fun firstNonContextEvidence(
@@ -129,7 +143,7 @@ class SemanticResponseValidator(
 }
 
 sealed interface ValidationOutcome {
-    data class Valid(val claims: List<RawClaim>) : ValidationOutcome
+    data class Valid(val claims: List<RawClaim>, val summary: String? = null) : ValidationOutcome
     data class Invalid(val reason: ValidationFailure) : ValidationOutcome
 }
 

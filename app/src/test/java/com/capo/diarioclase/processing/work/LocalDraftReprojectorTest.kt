@@ -18,7 +18,9 @@ class LocalDraftReprojectorTest {
 
     private class FakeStore(private val claims: List<EvidenceClaim>) : LocalReprojectionStore {
         var savedMode: InterpretationMode? = null
+        var invalidations = 0
         override suspend fun persistedClaims(sessionId: SessionId): List<EvidenceClaim> = claims
+        override suspend fun invalidateEditorialReport(sessionId: SessionId) { invalidations++ }
         override suspend fun mergeFieldEditsAndSave(draft: DiaryDraft): DiaryDraft {
             savedMode = draft.mode
             return draft
@@ -33,6 +35,7 @@ class LocalDraftReprojectorTest {
         assertEquals(InterpretationMode.EXHAUSTIVE, draft.mode)
         assertEquals(InterpretationMode.EXHAUSTIVE, store.savedMode)
         assertTrue(draft.pages.contains("42"))
+        assertEquals(1, store.invalidations)
     }
 
     @Test fun `mode changes the projection locally without touching providers`() = runTest {

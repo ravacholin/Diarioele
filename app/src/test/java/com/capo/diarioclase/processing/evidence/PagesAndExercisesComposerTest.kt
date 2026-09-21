@@ -18,7 +18,7 @@ class PagesAndExercisesComposerTest {
             ),
         )
 
-        assertEquals("42 (3)\n4", result)
+        assertEquals("Página 42: ejercicio 3\nEjercicio sin página: 4", result)
     }
 
     @Test
@@ -30,7 +30,7 @@ class PagesAndExercisesComposerTest {
             ),
         )
 
-        assertEquals("5", result)
+        assertEquals("Ejercicio sin página: 5", result)
     }
 
     @Test
@@ -42,7 +42,7 @@ class PagesAndExercisesComposerTest {
             ),
         )
 
-        assertEquals("20", result)
+        assertEquals("Página 20", result)
     }
 
     @Test
@@ -57,7 +57,7 @@ class PagesAndExercisesComposerTest {
             ),
         )
 
-        assertEquals("14 (3, a)\n22 (1)", result)
+        assertEquals("Página 14: ejercicios 3 y a\nPágina 22: ejercicio 1", result)
     }
 
     @Test
@@ -69,7 +69,7 @@ class PagesAndExercisesComposerTest {
             ),
         )
 
-        assertEquals("3\n22", result)
+        assertEquals("Ejercicio sin página: 3\nPágina 22", result)
     }
 
     @Test
@@ -96,7 +96,47 @@ class PagesAndExercisesComposerTest {
             ),
         )
 
-        assertEquals("14 (3)\n22", result)
+        assertEquals("Página 14: ejercicio 3\nPágina 22", result)
+    }
+
+    @Test
+    fun `groups the screenshot exercises under their pages even when claims arrive by category`() {
+        val firstExcerpt =
+            "Bueno, vamos a hacer la página 1, el ejercicio 2, la página 2, el ejercicio 3 y 4"
+        val result = composer.compose(
+            listOf(
+                claim("e2", ClaimCategory.EXERCISE, "2", excerpt = firstExcerpt),
+                claim("e3", ClaimCategory.EXERCISE, "3", excerpt = firstExcerpt),
+                claim("e4", ClaimCategory.EXERCISE, "4", excerpt = firstExcerpt),
+                claim("p1", ClaimCategory.PAGE, "1", excerpt = firstExcerpt),
+                claim("p2", ClaimCategory.PAGE, "2", excerpt = firstExcerpt),
+                claim(
+                    "e8", ClaimCategory.EXERCISE, "8",
+                    startMs = 2, excerpt = "el ejercicio 8 en la página 7",
+                ),
+                claim(
+                    "p7", ClaimCategory.PAGE, "7",
+                    startMs = 2, excerpt = "el ejercicio 8 en la página 7",
+                ),
+            ),
+        )
+
+        assertEquals(
+            "Página 1: ejercicio 2\nPágina 2: ejercicios 3 y 4\nPágina 7: ejercicio 8",
+            result,
+        )
+    }
+
+    @Test
+    fun `explicit relation never falls back to a different accepted page`() {
+        val result = composer.compose(
+            listOf(
+                claim("p1", ClaimCategory.PAGE, "1", excerpt = "página 1"),
+                claim("e8", ClaimCategory.EXERCISE, "8 (p. 7)", excerpt = "ejercicio 8 en la página 7"),
+            ),
+        )
+
+        assertEquals("Página 1\nEjercicio sin página: 8", result)
     }
 
     private fun claim(
@@ -109,6 +149,7 @@ class PagesAndExercisesComposerTest {
         blockOrdinal: Int? = null,
         segmentOrdinal: Int? = null,
         spanOrdinal: Int? = null,
+        excerpt: String = value,
     ) = EvidenceClaim(
         id = id,
         category = category,
@@ -121,7 +162,7 @@ class PagesAndExercisesComposerTest {
             blockId = BlockId(block),
             startMs = startMs,
             endMs = startMs + 1,
-            excerpt = value,
+            excerpt = excerpt,
             blockOrdinal = blockOrdinal,
             audioSegmentOrdinal = segmentOrdinal,
             spanOrdinal = spanOrdinal,

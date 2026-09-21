@@ -51,6 +51,7 @@ class RoomTemporaryCleanupStore(private val dao: SessionDao) : TemporaryCleanupS
         dao.deleteCheckpoints(sessionId.value)
         dao.deleteTranscriptionRun(sessionId.value)
         dao.deleteInterpretationCacheForSession(sessionId.value)
+        dao.deleteEditorialReport(sessionId.value)
     }
 
     override suspend fun temporaryRowCount(sessionId: SessionId) = dao.temporaryRowCount(sessionId.value)

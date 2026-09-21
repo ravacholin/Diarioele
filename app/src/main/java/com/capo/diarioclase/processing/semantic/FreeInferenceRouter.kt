@@ -22,6 +22,7 @@ data class RemoteRoute(
     val claims: List<RawClaim>,
     val provider: InferenceProvider?,
     val failures: List<ProviderFailure>,
+    val summary: String? = null,
 )
 
 /** Resultado de rutear un paquete: remoto validado, o fallback local. */
@@ -30,6 +31,7 @@ sealed interface RoutedPacketOutcome {
         val claims: List<RawClaim>,
         val provider: InferenceProvider,
         val modelId: String,
+        val summary: String? = null,
     ) : RoutedPacketOutcome
 
     data class Local(
@@ -85,7 +87,7 @@ class FreeInferenceRouter(
             sourceSpanIds, deadlineEpochMs, transientStrikes, onAttempt,
         )
     ) {
-        is RoutedPacketOutcome.Remote -> RemoteRoute(outcome.claims, outcome.provider, emptyList())
+        is RoutedPacketOutcome.Remote -> RemoteRoute(outcome.claims, outcome.provider, emptyList(), outcome.summary)
         is RoutedPacketOutcome.Local -> RemoteRoute(emptyList(), null, outcome.failures)
     }
 
@@ -110,6 +112,7 @@ class FreeInferenceRouter(
                     identify(cached.claims, runId, packet.packetId, hit.provider, sourceSpanIds),
                     hit.provider,
                     hit.modelId,
+                    cached.summary,
                 )
             }
         }
@@ -154,6 +157,7 @@ class FreeInferenceRouter(
                                 identify(validation.claims, runId, packet.packetId, provider, sourceSpanIds),
                                 provider,
                                 modelId,
+                                validation.summary,
                             )
                         }
                         failure = null

@@ -101,6 +101,10 @@ class RoomProcessingStore(
         )
     }
 
+    override suspend fun invalidateEditorialReport(sessionId: SessionId) {
+        dao.markEditorialReportStale(sessionId.value, clock.nowEpochMs())
+    }
+
     /**
      * Combina una ficha nueva con las ediciones previas del docente, protegiendo **solo** los
      * campos marcados como editados (máscara por campo de Q4). Conserva la máscara y la bandera
@@ -123,6 +127,9 @@ class RoomProcessingStore(
             editedPages = existing?.editedPages ?: false,
             editedExercises = existing?.editedExercises ?: false,
             editedHomework = existing?.editedHomework ?: false,
+            // Un resumen nuevo (interpretación remota) reemplaza; una reproyección local de modo
+            // llega con summary vacío y conserva el resumen ya persistido.
+            summary = summary.ifBlank { existing?.summary.orEmpty() },
         )
 
     override suspend fun sessionState(id: SessionId) =
@@ -252,6 +259,7 @@ class RoomProcessingStore(
                     declaredConfidence = it.declaredConfidence,
                     effectiveConfidence = it.effectiveConfidence,
                     claimOrdinal = it.claimOrdinal,
+                    reason = it.reason,
                 )
             },
         )
@@ -341,24 +349,33 @@ class RoomProcessingStore(
      * Aplica una decisión de revisión sobre un claim (aceptar/rechazar/corregir). Escribe la
      * revisión antes de actualizar el claim. Corregir exige un valor no vacío. Sin red ni scheduler.
      */
-    suspend fun reviewClaim(claimId: String, action: ReviewAction, correctedValue: String?): Unit =
+    suspend fun reviewClaim(claimId: String, action: ReviewAction, correctedValue: String?) {
         database.withTransaction {
             if (action == ReviewAction.CORRECT) require(!correctedValue.isNullOrBlank())
-            val claim = dao.claimById(claimId)
-            val before = claim?.value.orEmpty()
+            val claim = requireNotNull(dao.claimById(claimId)) { "Unknown claim: $claimId" }
+            val before = claim.value
             val after = when (action) {
                 ReviewAction.CORRECT -> correctedValue.orEmpty()
                 ReviewAction.REJECT -> ""
                 ReviewAction.ACCEPT -> before
             }
-            val field = claim?.let { categoryField(it.category) }?.name.orEmpty()
-            dao.insertRevision(revision(claim?.sessionId.orEmpty(), field, before, after, action, claimId))
-            when (action) {
-                ReviewAction.ACCEPT -> dao.setClaimActive(claimId, true)
+            val field = categoryField(claim.category).name
+            dao.insertRevision(revision(claim.sessionId, field, before, after, action, claimId))
+            val updated = when (action) {
+                ReviewAction.ACCEPT -> dao.acceptClaim(claimId)
                 ReviewAction.REJECT -> dao.setClaimActive(claimId, false)
-                ReviewAction.CORRECT -> dao.setClaimValue(claimId, correctedValue!!, correctedValue)
+                ReviewAction.CORRECT -> dao.correctClaim(claimId, correctedValue!!, correctedValue)
             }
+            check(updated == 1) { "Claim update failed: $claimId" }
+            val mode = dao.draft(claim.sessionId)?.mode
+                ?.let { runCatching { com.capo.diarioclase.processing.evidence.InterpretationMode.valueOf(it) }.getOrNull() }
+                ?: com.capo.diarioclase.processing.evidence.InterpretationMode.CONSERVATIVE
+            // La mutación, la invalidación editorial y la reproyección forman una única transacción:
+            // dos revisiones rápidas
+            // se serializan y una cancelación no puede dejar el claim y el borrador desalineados.
+            LocalDraftReprojector(this).reproject(SessionId(claim.sessionId), mode)
         }
+    }
 
     suspend fun revisions(claimId: String): List<DraftFieldRevision> =
         dao.revisionsForClaim(claimId).map { it.toDomain() }
@@ -438,6 +455,7 @@ class RoomProcessingStore(
             declaredConfidence = declaredConfidence,
             effectiveConfidence = effectiveConfidence,
             claimOrdinal = claimOrdinal,
+            reason = reason,
         )
 
     private fun TranscriptSpanEntity.toDomain() =

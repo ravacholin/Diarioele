@@ -10,6 +10,7 @@ import com.capo.diarioclase.data.db.BlockEntity
 import com.capo.diarioclase.data.db.CerLevel
 import com.capo.diarioclase.data.db.DiarioDatabase
 import com.capo.diarioclase.data.db.DiaryDraftEntity
+import com.capo.diarioclase.data.db.EditorialReportEntity
 import com.capo.diarioclase.data.db.SegmentId
 import com.capo.diarioclase.data.db.SegmentState
 import com.capo.diarioclase.data.db.SessionEntity
@@ -28,11 +29,15 @@ import com.capo.diarioclase.diary.cleanup.CleanupOutcome
 import com.capo.diarioclase.diary.cleanup.RoomTemporaryCleanupStore
 import com.capo.diarioclase.data.db.TranscriptSpanEntity
 import com.capo.diarioclase.processing.evidence.ClaimCategory
+import com.capo.diarioclase.processing.evidence.ClaimOrigin
 import com.capo.diarioclase.processing.evidence.ClaimStatus
+import com.capo.diarioclase.processing.evidence.EvidenceClaim
+import com.capo.diarioclase.processing.evidence.EvidenceRef
 import com.capo.diarioclase.processing.evidence.DiaryFieldMaterializer
 import com.capo.diarioclase.processing.evidence.InterpretationMode
 import com.capo.diarioclase.processing.evidence.InterpretationProjector
 import com.capo.diarioclase.processing.evidence.PagesAndExercisesComposer
+import com.capo.diarioclase.processing.editorial.*
 import com.capo.diarioclase.processing.semantic.EphemeralCredential
 import com.capo.diarioclase.processing.semantic.FallbackClaimExtractor
 import com.capo.diarioclase.processing.semantic.FreeInferenceRouter
@@ -118,6 +123,7 @@ class FullJourneyTest {
         database.sessions().saveDraft(draft)
         database.sessions().saveTranscriptionRun(TranscriptionRunEntity(sessionId.value, "COMPLETED", false, readyAudio.durationMs, readyAudio.durationMs, null, null, 1))
         database.sessions().saveCheckpoint(TranscriptionCheckpointEntity(readyAudio.id.value, sessionId.value, readyAudio.durationMs, readyAudio.durationMs, 1, 1, "COMPLETED", null, 1))
+        seedReadyEditorial(database, sessionId)
         assertNotNull(database.sessions().transcriptionRun(sessionId.value))
 
         val outcome = cleanup.approveAndClean(sessionId, draft)
@@ -156,6 +162,7 @@ class FullJourneyTest {
         database.sessions().saveDraft(draft)
         database.sessions().saveTranscriptionRun(TranscriptionRunEntity(sessionId.value, "COMPLETED", false, readyAudio.durationMs, readyAudio.durationMs, null, null, 1))
         database.sessions().saveCheckpoint(TranscriptionCheckpointEntity(readyAudio.id.value, sessionId.value, readyAudio.durationMs, readyAudio.durationMs, 1, 1, "COMPLETED", null, 1))
+        seedReadyEditorial(database, sessionId)
 
         val failingFiles = object : CleanupFileStore {
             override suspend fun delete(segmentId: SegmentId) = DeleteResult.Failed("bloqueado")
@@ -193,6 +200,7 @@ class FullJourneyTest {
             first.sessions().saveSegment(AudioSegmentEntity(readyAudio.id.value, "pending-block", 0, readyAudio.path, File(readyAudio.path).length(), readyAudio.durationMs, readyAudio.sha256, SegmentState.READY.name))
             val draft = DiaryDraftEntity("pending-draft", sessionId.value, InterpretationMode.CONSERVATIVE.name, "Narración", "Lectura", "12", "3", "Tarea", 1)
             first.sessions().saveDraft(draft)
+            seedReadyEditorial(first, sessionId)
             val firstArchive = RoomDiaryRepository(first, Clock { 1_000 }, TestIds())
             assertNotNull(firstArchive.saveVerified(sessionId, draft))
             first.close()
@@ -310,7 +318,7 @@ class FullJourneyTest {
             first.close()
         }
 
-        assertEquals("14 (3)", firstPages)
+        assertEquals("Página 14: ejercicio 3", firstPages)
         assertEquals("4", firstHomework)
         assertEquals(2, providerCalls) // un paquete por bloque
 
@@ -333,6 +341,52 @@ class FullJourneyTest {
         }
     }
 
+    @Test fun `accepted evidence becomes permanent editorial report before cleanup`() = runTest {
+        val sessionId = SessionId("editorial-journey")
+        val dao = database.sessions()
+        dao.insertSession(SessionEntity(sessionId.value, "2026-09-21", CerLevel.B1.name, SessionState.AWAITING_REVIEW.name, 1, 1))
+        val draft = DiaryDraftEntity("editorial-draft", sessionId.value, InterpretationMode.CONSERVATIVE.name, "Pasados", "Práctica", "42", "3", "", 1)
+        dao.saveDraft(draft)
+        val page = editorialClaim("page", ClaimCategory.PAGE, "Página 42", "42", 1)
+        val exercise = editorialClaim("exercise", ClaimCategory.EXERCISE, "Ejercicio 3", "3", 2)
+        var providerCalls = 0
+        val client = object : EditorialProviderClient {
+            override suspend fun generate(request: EditorialReportRequest, credential: EphemeralCredential, repair: EditorialRepair?): ProviderOutcome {
+                providerCalls++
+                val number = request.items.single { it.category == ClaimCategory.EXERCISE }.normalizedValue
+                val json = "{\"summary\":\"Práctica de pasados en la página 42.\",\"material\":[{\"text\":\"Página 42, ejercicio $number.\",\"source_claim_ids\":[\"page\",\"exercise\"]}],\"homework\":[],\"summary_source_claim_ids\":[\"page\"],\"discarded\":[]}"
+                return ProviderOutcome.Success(InferenceProvider.GEMINI, "gemini-2.5-flash", json)
+            }
+        }
+        val store = RoomEditorialReportStore(database, Clock { 10 })
+        val service = EditorialReportService(
+            EditorialReportPacketBuilder(),
+            EditorialReportRouter(
+                mapOf(InferenceProvider.GEMINI to client), EditorialReportValidator(),
+                credentialFor = { EphemeralCredential("test-only") }, onDelay = {},
+            ),
+            store,
+            enabledProviders = { listOf(ProviderModel(InferenceProvider.GEMINI, "gemini-2.5-flash")) },
+            nowEpochMs = { 10 },
+        )
+
+        assertTrue(service.generate(sessionId, InterpretationMode.CONSERVATIVE, listOf(page, exercise)) is EditorialGenerationOutcome.Ready)
+        assertEquals("READY", dao.editorialReport(sessionId.value)?.state)
+        store.markStale(sessionId.value)
+        assertEquals("STALE", dao.editorialReport(sessionId.value)?.state)
+        val correctedClaims = listOf(page, exercise.copy(value = "Ejercicio 4", normalizedValue = "4"))
+        assertTrue(service.generate(sessionId, InterpretationMode.CONSERVATIVE, correctedClaims) is EditorialGenerationOutcome.Ready)
+
+        val outcome = cleanup.approveAndClean(sessionId, draft.copy(exercises = "4"))
+
+        assertTrue(outcome is CleanupOutcome.Archived)
+        val permanent = archive.getBySession(sessionId) ?: error("missing editorial diary")
+        assertEquals("Página 42, ejercicio 4.", permanent.reportMaterial)
+        assertEquals(0, dao.temporaryRowCount(sessionId.value))
+        assertTrue(DiaryClipboardFormatter().format(permanent).contains("MATERIAL TRABAJADO\nPágina 42, ejercicio 4."))
+        assertEquals(2, providerCalls)
+    }
+
     private suspend fun seedTranscript(db: DiarioDatabase, sessionId: SessionId, spans: List<TranscriptSpan>) {
         val dao = db.sessions()
         dao.insertSession(SessionEntity(sessionId.value, "2026-09-16", CerLevel.B1.name, SessionState.EXTRACTING.name, 1, 1))
@@ -343,6 +397,17 @@ class FullJourneyTest {
         dao.insertTranscript(
             spans.map { TranscriptSpanEntity(it.id, it.audioSegmentId, it.blockId.value, it.startMs, it.endMs, it.text, it.confidence) },
         )
+    }
+
+    private suspend fun seedReadyEditorial(db: DiarioDatabase, sessionId: SessionId) {
+        db.sessions().saveEditorialReport(EditorialReportEntity(
+            sessionId.value, "", "READY", "", "", "", "", null, null, "", "", "", null, 1,
+        ))
+    }
+
+    private fun editorialClaim(id: String, category: ClaimCategory, value: String, normalized: String, span: Int): EvidenceClaim {
+        val evidence = EvidenceRef(com.capo.diarioclase.data.db.BlockId("editorial-block"), span.toLong(), span.toLong() + 1, value, 0, 0, span)
+        return EvidenceClaim(id, category, value, normalized, ClaimStatus.PERFORMED, .99, ClaimOrigin.SEMANTIC, evidence, evidences = listOf(evidence))
     }
 
     private fun journeyDatabase(name: String) = Room.databaseBuilder(context, DiarioDatabase::class.java, name)

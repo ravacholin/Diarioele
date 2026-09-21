@@ -5,6 +5,7 @@ import com.capo.diarioclase.processing.evidence.ClaimStatus
 import com.capo.diarioclase.processing.evidence.EvidenceClaim
 import com.capo.diarioclase.processing.evidence.EvidenceRef
 import com.capo.diarioclase.processing.evidence.RawClaim
+import com.capo.diarioclase.processing.evidence.SpanishNumberNormalizer as WordNumbers
 
 /**
  * Fusión híbrida de candidatos locales deterministas y claims remotos aceptados (Fase 6, Q3).
@@ -18,8 +19,14 @@ import com.capo.diarioclase.processing.evidence.RawClaim
  * - Un candidato local cuya evidencia ya fue citada por algún claim remoto se descarta: el
  *   remoto interpretó esos spans. Un candidato local sobre spans que el remoto no citó se
  *   conserva como [ClaimProvenance.LOCAL] (rellena huecos).
- * - Conflicto de página: si hay una página local (o BOTH) y una página solo remota con un
- *   número distinto, la remota pasa a UNCERTAIN. Nunca se borra una página local con evidencia.
+ * - Varias páginas explícitas pueden coexistir: un número distinto no es por sí solo una
+ *   contradicción. Las correcciones se resuelven mediante supersesiones y cronología.
+ * - Anclaje de números remotos (Nivel 2): un claim numérico solo remoto (PAGE/EXERCISE) se
+ *   evalúa contra el texto de sus spans citados. Si el número aparece anclado por su palabra
+ *   clave, se mantiene. Si no aparece pero el modelo citó un fragmento real que menciona la
+ *   palabra clave ([EvidenceClaim.evidenceQuote] verificada por el validador), se rescata como
+ *   UNCERTAIN ("a confirmar"): probablemente Whisper transcribió mal el número. Si no hay ni
+ *   token ni cita válida, es probable invención y se descarta.
  *
  * No consulta la red. Devuelve [EvidenceClaim] con procedencia y confianza efectiva; el
  * marcado de inactividad por supersesión y los duplicados entre paquetes los resuelve luego
@@ -62,30 +69,51 @@ class HybridClaimMerger(
             out += l.toEvidenceClaim(ClaimProvenance.LOCAL)
         }
 
-        return resolvePageConflicts(out)
+        return resolveRemoteGrounding(out)
     }
 
     /**
-     * Una página solo remota que contradice a una página local con evidencia pasa a UNCERTAIN:
-     * la lectura determinista local no se descarta, la remota queda para confirmación.
+     * Ancla los claims numéricos solo remotos contra el texto de sus spans citados (Nivel 2).
+     * Un claim con acuerdo local (BOTH) o local puro ya está anclado y no se toca.
      */
-    private fun resolvePageConflicts(claims: List<EvidenceClaim>): List<EvidenceClaim> {
-        val groundedPages = claims
-            .filter { it.category == ClaimCategory.PAGE && it.provenance != ClaimProvenance.REMOTE }
-            .map { it.normalizedValue }
-            .toSet()
-        if (groundedPages.isEmpty()) return claims
-        return claims.map { claim ->
-            if (claim.category == ClaimCategory.PAGE &&
-                claim.provenance == ClaimProvenance.REMOTE &&
-                claim.normalizedValue !in groundedPages
-            ) {
-                claim.copy(status = ClaimStatus.UNCERTAIN)
-            } else {
-                claim
+    private fun resolveRemoteGrounding(claims: List<EvidenceClaim>): List<EvidenceClaim> =
+        claims.mapNotNull { claim ->
+            val kind = numberKindOf(claim.category)
+            if (kind == null || claim.provenance != ClaimProvenance.REMOTE) return@mapNotNull claim
+            val numbers = numbersOf(claim.value, claim.normalizedValue, kind)
+            if (numbers.isEmpty()) return@mapNotNull claim
+
+            val tokenGrounded = numbers.all { number ->
+                claim.evidences.any { ref ->
+                    !ref.contextual && number in normalizer.values(ref.excerpt, kind)
+                }
+            }
+            when {
+                tokenGrounded -> claim
+                quoteMentionsKeyword(claim.evidenceQuote, kind) -> claim.copy(status = ClaimStatus.UNCERTAIN)
+                else -> null
             }
         }
+
+    /** La cita verificada respalda el rescate solo si menciona la palabra clave del tipo. */
+    private fun quoteMentionsKeyword(quote: String?, kind: NumberKind): Boolean {
+        val normalized = quote?.let { WordNumbers.normalize(it) } ?: return false
+        return normalized.contains(keywordOf(kind))
     }
+
+    private fun keywordOf(kind: NumberKind): String = when (kind) {
+        NumberKind.PAGE -> "pagina"
+        NumberKind.EXERCISE -> "ejercicio"
+    }
+
+    private fun numberKindOf(category: ClaimCategory): NumberKind? = when (category) {
+        ClaimCategory.PAGE -> NumberKind.PAGE
+        ClaimCategory.EXERCISE -> NumberKind.EXERCISE
+        else -> null
+    }
+
+    private fun numbersOf(value: String, normalizedValue: String, kind: NumberKind): List<String> =
+        normalizer.bareValues(value, kind).ifEmpty { normalizer.bareValues(normalizedValue, kind) }
 
     private fun key(claim: RawClaim): String = "${claim.category}|${coreValue(claim)}"
 
@@ -133,5 +161,7 @@ class HybridClaimMerger(
         transcriptSpanIds = transcriptSpanIds,
         claimOrdinal = claimOrdinal,
         provenance = provenance,
+        evidenceQuote = evidenceQuote,
+        reason = reason,
     )
 }

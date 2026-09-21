@@ -24,6 +24,7 @@ class AndroidCaptureActions(private val context:Context,private val app:DiarioCl
  private suspend fun preferLocal(enabled:Boolean){app.database.sessions().saveSetting(AppSettingEntity("prefer_local_interpretation",enabled.toString()))}
  private val reprojector by lazy{LocalDraftReprojector(app.processingStore)}
  override suspend fun reprojectMode(id:SessionId,mode:InterpretationMode){reprojector.reproject(id,mode)}
+ override suspend fun regenerateEditorialReport(id:SessionId,mode:InterpretationMode){app.editorialReportService.generate(id,mode,app.processingStore.persistedClaims(id))}
  override suspend fun saveDraft(draft:DiaryDraftEntity){app.processingStore.saveEditedDraft(draft)}
  override suspend fun reviewClaim(sessionId:SessionId,claimId:String,action:ReviewAction,correctedValue:String?){app.processingStore.reviewClaim(claimId,action,correctedValue)}
  override suspend fun retryInterpretation(id:SessionId,mode:InterpretationMode){preferLocal(false);app.transcriptionScheduler.resume(id,mode)}

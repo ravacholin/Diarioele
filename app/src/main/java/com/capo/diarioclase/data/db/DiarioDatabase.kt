@@ -25,8 +25,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ClaimEvidenceEntity::class,
         ClaimSupersessionEntity::class,
         DraftFieldRevisionEntity::class,
+        EditorialReportEntity::class,
     ],
-    version = 7,
+    version = 9,
     exportSchema = true,
 )
 abstract class DiarioDatabase : RoomDatabase() {
@@ -134,6 +135,41 @@ abstract class DiarioDatabase : RoomDatabase() {
                 )
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_draft_field_revisions_sessionId ON draft_field_revisions(sessionId)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_draft_field_revisions_claimId ON draft_field_revisions(claimId)")
+            }
+        }
+
+        /**
+         * v7→v8: ficha más rica (Nivel 3). Agrega `reason` a cada claim y `summary` a la ficha.
+         * Es aditiva y no destructiva: `reason` es nullable y `summary` trae default vacío para
+         * las filas legacy.
+         */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE evidence_claims ADD COLUMN reason TEXT")
+                db.execSQL("ALTER TABLE diary_drafts ADD COLUMN summary TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE diary_entries ADD COLUMN reportSummary TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE diary_entries ADD COLUMN reportMaterial TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE diary_entries ADD COLUMN reportHomework TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE diary_entries ADD COLUMN reportAuditJson TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE diary_entries ADD COLUMN reportProvider TEXT")
+                db.execSQL("ALTER TABLE diary_entries ADD COLUMN reportModelId TEXT")
+                db.execSQL("ALTER TABLE diary_entries ADD COLUMN reportInputHash TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE diary_entries ADD COLUMN reportPromptVersion TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE diary_entries ADD COLUMN reportSchemaVersion TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE diary_entries ADD COLUMN reportValidatorVersion TEXT NOT NULL DEFAULT ''")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS editorial_reports (sessionId TEXT NOT NULL PRIMARY KEY," +
+                        "inputHash TEXT NOT NULL,state TEXT NOT NULL,rawJson TEXT NOT NULL,summary TEXT NOT NULL," +
+                        "materialText TEXT NOT NULL,homeworkText TEXT NOT NULL,provider TEXT,modelId TEXT," +
+                        "promptVersion TEXT NOT NULL,schemaVersion TEXT NOT NULL,validatorVersion TEXT NOT NULL," +
+                        "failure TEXT,updatedAtEpochMs INTEGER NOT NULL)",
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_editorial_reports_sessionId ON editorial_reports(sessionId)")
             }
         }
     }

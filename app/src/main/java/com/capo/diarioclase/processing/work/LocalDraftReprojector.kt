@@ -15,6 +15,7 @@ import com.capo.diarioclase.processing.evidence.PagesAndExercisesComposer
 interface LocalReprojectionStore {
     suspend fun persistedClaims(sessionId: SessionId): List<EvidenceClaim>
     suspend fun mergeFieldEditsAndSave(draft: DiaryDraft): DiaryDraft
+    suspend fun invalidateEditorialReport(sessionId: SessionId) = Unit
 }
 
 /**
@@ -32,6 +33,7 @@ class LocalDraftReprojector(
     ),
 ) {
     suspend fun reproject(sessionId: SessionId, mode: InterpretationMode): DiaryDraft {
+        store.invalidateEditorialReport(sessionId)
         val claims = store.persistedClaims(sessionId)
         val generated = materializer.materialize(sessionId.value, mode, claims)
         return store.mergeFieldEditsAndSave(generated)

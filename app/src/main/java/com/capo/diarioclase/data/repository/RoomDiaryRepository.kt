@@ -31,6 +31,11 @@ class RoomDiaryRepository(
             if (draft.sessionId != sessionId.value) return@withTransaction DiarySaveResult.Failed("El borrador no corresponde a la sesión")
             val session = dao.session(sessionId.value)
                 ?: return@withTransaction DiarySaveResult.Failed("No existe la sesión")
+            val report = dao.editorialReport(sessionId.value)
+                ?: return@withTransaction DiarySaveResult.Failed("Todavía no existe una ficha final editorial")
+            if (report.state != "READY") {
+                return@withTransaction DiarySaveResult.Failed("La ficha final editorial no está lista")
+            }
             val existing = dao.diaryBySession(sessionId.value)
             val entry = DiaryEntryEntity(
                 id = existing?.id ?: idProvider.next(),
@@ -45,6 +50,16 @@ class RoomDiaryRepository(
                 approvedAtEpochMs = existing?.approvedAtEpochMs ?: clock.nowEpochMs(),
                 updatedAtEpochMs = clock.nowEpochMs(),
                 temporariesDeleted = existing?.temporariesDeleted ?: false,
+                reportSummary = report.summary,
+                reportMaterial = report.materialText,
+                reportHomework = report.homeworkText,
+                reportAuditJson = report.rawJson,
+                reportProvider = report.provider,
+                reportModelId = report.modelId,
+                reportInputHash = report.inputHash,
+                reportPromptVersion = report.promptVersion,
+                reportSchemaVersion = report.schemaVersion,
+                reportValidatorVersion = report.validatorVersion,
             )
             dao.saveDiary(entry)
             dao.diaryBySession(sessionId.value)
@@ -124,6 +139,16 @@ class RoomDiaryRepository(
         approvedAtEpochMs = approvedAtEpochMs,
         updatedAtEpochMs = updatedAtEpochMs,
         temporariesDeleted = temporariesDeleted,
+        reportSummary = reportSummary,
+        reportMaterial = reportMaterial,
+        reportHomework = reportHomework,
+        reportAuditJson = reportAuditJson,
+        reportProvider = reportProvider,
+        reportModelId = reportModelId,
+        reportInputHash = reportInputHash,
+        reportPromptVersion = reportPromptVersion,
+        reportSchemaVersion = reportSchemaVersion,
+        reportValidatorVersion = reportValidatorVersion,
     )
 
     private fun DiaryEntry.searchableText() = listOf(
@@ -134,6 +159,9 @@ class RoomDiaryRepository(
         pages,
         completedExercises,
         homework,
+        reportSummary,
+        reportMaterial,
+        reportHomework,
     ).joinToString(" ").let(::normalize)
 
     private fun normalize(value: String): String = Normalizer.normalize(value, Normalizer.Form.NFD)

@@ -14,6 +14,14 @@ import com.capo.diarioclase.diary.cleanup.RoomTemporaryCleanupStore
 import com.capo.diarioclase.processing.evidence.ClaimReducer
 import com.capo.diarioclase.processing.evidence.InterpretationProjector
 import com.capo.diarioclase.processing.evidence.LiteralClaimExtractor
+import com.capo.diarioclase.processing.editorial.EditorialReportPacketBuilder
+import com.capo.diarioclase.processing.editorial.EditorialReportRouter
+import com.capo.diarioclase.processing.editorial.EditorialReportService
+import com.capo.diarioclase.processing.editorial.EditorialReportStore
+import com.capo.diarioclase.processing.editorial.GeminiEditorialProviderClient
+import com.capo.diarioclase.processing.editorial.OpenAiEditorialProviderClient
+import com.capo.diarioclase.processing.editorial.RoomEditorialReportStore
+import com.capo.diarioclase.processing.editorial.EditorialReportValidator
 import com.capo.diarioclase.processing.semantic.DefaultInferenceHttpTransport
 import com.capo.diarioclase.processing.semantic.EphemeralCredential
 import com.capo.diarioclase.processing.semantic.FallbackClaimExtractor
@@ -82,6 +90,8 @@ class DiarioClaseApp : Application() {
     lateinit var providerSettings: ProviderSettingsStore
     lateinit var providerCredentials: ProviderCredentialStore
     lateinit var providerSettingsController: ProviderSettingsController
+    lateinit var editorialReportStore: EditorialReportStore
+    lateinit var editorialReportService: EditorialReportService
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -95,6 +105,8 @@ class DiarioClaseApp : Application() {
                 DiarioDatabase.MIGRATION_4_5,
                 DiarioDatabase.MIGRATION_5_6,
                 DiarioDatabase.MIGRATION_6_7,
+                DiarioDatabase.MIGRATION_7_8,
+                DiarioDatabase.MIGRATION_8_9,
             )
             .build()
         repository = RoomSessionRepository(database, SystemClock)
@@ -166,7 +178,36 @@ class DiarioClaseApp : Application() {
                 }.getOrNull() ?: "unknown",
             ),
         )
-        transcriptionCoordinator = TranscriptionCoordinator(processingStore, whisperEngine, interpreter = interpreter)
+        editorialReportStore = RoomEditorialReportStore(database, SystemClock)
+        val editorialClients = mapOf(
+            InferenceProvider.GEMINI to GeminiEditorialProviderClient(transport),
+            InferenceProvider.GROQ to OpenAiEditorialProviderClient(OpenAiCompatibleProfile.GROQ, transport),
+            InferenceProvider.OPENROUTER to OpenAiEditorialProviderClient(OpenAiCompatibleProfile.OPENROUTER, transport),
+        )
+        editorialReportService = EditorialReportService(
+            builder = EditorialReportPacketBuilder(),
+            router = EditorialReportRouter(
+                clients = editorialClients,
+                validator = EditorialReportValidator(),
+                credentialFor = { provider ->
+                    credentials.readCredential(provider)?.let { chars ->
+                        val value = String(chars)
+                        chars.fill(Char(0))
+                        EphemeralCredential(value)
+                    }
+                },
+            ),
+            store = editorialReportStore,
+            enabledProviders = {
+                settings.enabledProfilesInOrder().map { ProviderModel(it.provider, it.modelId) }
+            },
+        )
+        transcriptionCoordinator = TranscriptionCoordinator(
+            processingStore,
+            whisperEngine,
+            interpreter = interpreter,
+            editorialGenerator = editorialReportService,
+        )
         providerSettingsController = ProviderSettingsController(
             settings = providerSettings,
             credentials = providerCredentials,

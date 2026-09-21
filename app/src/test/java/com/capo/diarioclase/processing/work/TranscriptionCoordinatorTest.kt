@@ -17,6 +17,8 @@ import com.capo.diarioclase.processing.evidence.EvidenceRef
 import com.capo.diarioclase.processing.evidence.InterpretationMode
 import com.capo.diarioclase.processing.evidence.LiteralClaimExtractor
 import com.capo.diarioclase.processing.evidence.PagesAndExercisesComposer
+import com.capo.diarioclase.processing.editorial.EditorialGenerationOutcome
+import com.capo.diarioclase.processing.editorial.EditorialReportGenerator
 import com.capo.diarioclase.processing.transcription.AudioWindow
 import com.capo.diarioclase.processing.transcription.TranscriptDeduplicator
 import com.capo.diarioclase.processing.transcription.TranscriptSpan
@@ -31,6 +33,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TranscriptionCoordinatorTest {
+    @Test
+    fun `completed first pass requests editorial report after evidence is saved`() = runTest {
+        val store = FakeStore(durations = linkedMapOf("a" to 1_000L))
+        val engine = RecordingWindowEngine {
+            WindowTranscriptResult.Success(listOf(span(it, "Página cuarenta y dos")))
+        }
+        val generatedAfterSave = mutableListOf<Boolean>()
+        val generator = object : EditorialReportGenerator {
+            override suspend fun generate(
+                sessionId: SessionId,
+                mode: InterpretationMode,
+                claims: List<EvidenceClaim>,
+            ): EditorialGenerationOutcome {
+                generatedAfterSave += store.generatedDraft != null
+                assertEquals(listOf(ClaimCategory.PAGE), claims.map { it.category })
+                return EditorialGenerationOutcome.Obsolete
+            }
+        }
+
+        coordinator(store, engine, editorialGenerator = generator)
+            .process(SessionId("day"), InterpretationMode.CONSERVATIVE)
+
+        assertEquals(listOf(true), generatedAfterSave)
+        assertEquals(SessionState.AWAITING_REVIEW, store.state)
+    }
     @Test
     fun `checkpoints every window and creates five field draft`() = runTest {
         val store = FakeStore()
@@ -50,7 +77,7 @@ class TranscriptionCoordinatorTest {
 
         assertTrue(result is ProcessingOutcome.Complete)
         assertEquals(listOf("a", "b"), store.completedSegments)
-        assertEquals("42 (3)", store.generatedDraft?.pages)
+        assertEquals("Página 42: ejercicio 3", store.generatedDraft?.pages)
         assertEquals("", store.generatedDraft?.exercises)
         assertEquals(SessionState.AWAITING_REVIEW, store.state)
         assertEquals(TranscriptionRunState.COMPLETED.name, store.savedRun?.state)
@@ -74,7 +101,7 @@ class TranscriptionCoordinatorTest {
 
         val text = PagesAndExercisesComposer().compose(claims)
 
-        assertEquals("14 (3, a, b, 8)\n22 (1, 2)", text)
+        assertEquals("Página 14: ejercicios 3, a, b y 8\nPágina 22: ejercicios 1 y 2", text)
     }
 
     @Test
@@ -250,6 +277,7 @@ class TranscriptionCoordinatorTest {
         store: FakeStore,
         engine: WindowTranscriptionEngine,
         interpreter: SemanticInterpreter? = null,
+        editorialGenerator: EditorialReportGenerator? = null,
     ) = TranscriptionCoordinator(
         store = store,
         engine = engine,
@@ -258,6 +286,7 @@ class TranscriptionCoordinatorTest {
             FloatArray(((plan.endMs - plan.startMs) * 16).toInt())
         },
         interpreter = interpreter,
+        editorialGenerator = editorialGenerator,
     )
 
     private fun span(window: AudioWindow, text: String) = TranscriptSpan(

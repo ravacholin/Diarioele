@@ -2,6 +2,8 @@ package com.capo.diarioclase.ui.capture
 import com.capo.diarioclase.data.db.*
 import com.capo.diarioclase.processing.evidence.EvidenceClaim
 import com.capo.diarioclase.processing.transcription.TranscriptionFailure
+import com.capo.diarioclase.processing.editorial.EditorialReport
+import com.capo.diarioclase.processing.editorial.EditorialReportState
 enum class CaptureStatus { IDLE,RECORDING,PAUSED,REVIEW,PROCESSING,DRAFT,APPROVING,CLEANUP_PENDING,ARCHIVED }
 /**
  * Estado semántico observable de la corrida de interpretación (Task I7b), leído del journal.
@@ -26,4 +28,5 @@ data class InterpretationProgressUi(
     val canRetry:Boolean,
     val canContinueLocal:Boolean,
 )
-data class CaptureUiState(val status:CaptureStatus=CaptureStatus.IDLE,val sessionId:SessionId?=null,val currentBlockId:BlockId?=null,val currentBlock:Int=0,val totalDurationMs:Long=0,val homeworkMarkers:Int=0,val busy:Boolean=false,val message:String?=null,val lastRecording:RecordingReport?=null,val draft:DiaryDraftEntity?=null,val claims:List<EvidenceClaim> = emptyList(),val diaryId:String?=null,val processedMs:Long=0,val processingTotalMs:Long=0,val progressPercent:Int=0,val progressLabel:String?=null,val transcriptionPaused:Boolean=false,val processingFailure:TranscriptionFailure?=null,val semanticRun:SemanticRunUi?=null,val interpretation:InterpretationProgressUi?=null)
+data class EditorialReportUi(val state:EditorialReportState,val report:EditorialReport?,val provider:String?,val failure:String?)
+data class CaptureUiState(val status:CaptureStatus=CaptureStatus.IDLE,val sessionId:SessionId?=null,val currentBlockId:BlockId?=null,val currentBlock:Int=0,val totalDurationMs:Long=0,val homeworkMarkers:Int=0,val busy:Boolean=false,val message:String?=null,val lastRecording:RecordingReport?=null,val draft:DiaryDraftEntity?=null,val claims:List<EvidenceClaim> = emptyList(),val diaryId:String?=null,val processedMs:Long=0,val processingTotalMs:Long=0,val progressPercent:Int=0,val progressLabel:String?=null,val transcriptionPaused:Boolean=false,val processingFailure:TranscriptionFailure?=null,val semanticRun:SemanticRunUi?=null,val interpretation:InterpretationProgressUi?=null,val editorial:EditorialReportUi?=null)

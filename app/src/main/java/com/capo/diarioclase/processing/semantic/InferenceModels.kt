@@ -68,6 +68,11 @@ data class InterpretationRequest(
     val promptVersion: String,
     val schemaVersion: String,
     val spans: List<PublicTranscriptSpan>,
+    // Pistas locales orientativas (Nivel 1): números de página/ejercicio detectados por reglas
+    // y posiciones de marcadores manuales. Se rinden en un bloque aparte del prompt, marcado como
+    // contexto de la app (no instrucciones). Solo datos de bajo riesgo: nunca texto libre de la
+    // transcripción, para no reintroducir contenido no confiable como si fuera confiable.
+    val hints: List<String> = emptyList(),
 )
 
 /**
@@ -144,6 +149,9 @@ value class EphemeralCredential(val value: String)
  * - [category] y [status] se validan contra [ClaimCategory] y [ClaimStatus] en Task 5.
  * - [evidenceSpanIds] referencia [PublicTranscriptSpan.publicId]; nunca texto libre.
  * - [supersedesClaimKeys] lista [claimKey] anteriores que este claim reemplaza.
+ * - [evidenceQuote] (opcional) es la cita literal del fragmento en que el modelo se basa. Sirve
+ *   para anclar números de página/ejercicio cuando Whisper transcribió mal el número: el
+ *   validador la conserva solo si es substring real de un span citado no-contexto.
  */
 data class ProviderSemanticClaim(
     val claimKey: String,
@@ -154,6 +162,9 @@ data class ProviderSemanticClaim(
     val confidence: Double,
     val evidenceSpanIds: List<String>,
     val supersedesClaimKeys: List<String>,
+    val evidenceQuote: String? = null,
+    // Justificación breve del claim (Nivel 3), para mostrar al tocar el elemento. Opcional.
+    val reason: String? = null,
 )
 
 /** Identidad pública artificial de un span: `B<bloque>-S<span>`. */
@@ -247,6 +258,10 @@ object ProviderClaimsCodec {
             obj.put("confidence", claim.confidence)
             obj.put("evidence_span_ids", JSONArray(claim.evidenceSpanIds))
             obj.put("supersedes_claim_keys", JSONArray(claim.supersedesClaimKeys))
+            // Campos opcionales: solo se emiten cuando el claim los trae, para no alterar el
+            // round-trip de los claims que no los usan.
+            claim.evidenceQuote?.let { obj.put("evidence_quote", it) }
+            claim.reason?.let { obj.put("reason", it) }
             array.put(obj)
         }
         return JSONObject().put("claims", array).toString()
@@ -283,7 +298,26 @@ object ProviderClaimsCodec {
         confidence = requireDouble("confidence", index),
         evidenceSpanIds = requireStringList("evidence_span_ids", index),
         supersedesClaimKeys = requireStringList("supersedes_claim_keys", index),
+        evidenceQuote = optionalString("evidence_quote"),
+        reason = optionalString("reason"),
     )
+
+    /** Resumen opcional de la clase, a nivel raíz de la respuesta (Nivel 3). Blank → null. */
+    fun summaryOf(rawJson: String): String? {
+        val root = try {
+            JSONObject(rawJson)
+        } catch (e: JSONException) {
+            return null
+        }
+        if (!root.has("summary") || root.isNull("summary")) return null
+        return (root.get("summary") as? String)?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    /** Lee un texto opcional: ausente, nulo o no-texto → null, sin romper el parsing. */
+    private fun JSONObject.optionalString(key: String): String? {
+        if (!has(key) || isNull(key)) return null
+        return (get(key) as? String)?.takeIf { it.isNotBlank() }
+    }
 
     private fun JSONObject.requireString(key: String, index: Int): String {
         if (!has(key) || isNull(key)) throw ContractParseException("Claim $index sin '$key'.")

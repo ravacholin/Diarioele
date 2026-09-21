@@ -7,6 +7,7 @@ import com.capo.diarioclase.core.clock.Clock
 import com.capo.diarioclase.data.db.CerLevel
 import com.capo.diarioclase.data.db.DiarioDatabase
 import com.capo.diarioclase.data.db.DiaryDraftEntity
+import com.capo.diarioclase.data.db.EditorialReportEntity
 import com.capo.diarioclase.data.db.SessionEntity
 import com.capo.diarioclase.data.db.SessionId
 import com.capo.diarioclase.data.db.SessionState
@@ -19,6 +20,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertFalse
 import org.junit.Assert.fail
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -27,6 +29,34 @@ import java.util.concurrent.CancellationException
 
 @RunWith(RobolectricTestRunner::class)
 class RoomDiaryRepositoryTest {
+    @Test fun `saveVerified refuses stale editorial report`() = runTest {
+        insertSession(editorialState = "STALE")
+
+        val saved = repository.saveVerified(SessionId("session-1"), draft())
+
+        assertTrue(saved is DiarySaveResult.Failed)
+        assertNull(database.sessions().diaryBySession("session-1"))
+    }
+
+    @Test fun `saveVerified refuses a missing editorial report`() = runTest {
+        insertSession(editorialState = null)
+
+        val saved = repository.saveVerified(SessionId("session-1"), draft())
+
+        assertTrue(saved is DiarySaveResult.Failed)
+        assertNull(database.sessions().diaryBySession("session-1"))
+    }
+
+    @Test fun `ready editorial report is copied with exact prose and audit metadata`() = runTest {
+        insertSession()
+
+        val saved = repository.saveVerified(SessionId("session-1"), draft()) as DiarySaveResult.Verified
+
+        assertEquals("Resumen exacto", saved.entry.reportSummary)
+        assertEquals("Página 42, ejercicio 3.", saved.entry.reportMaterial)
+        assertEquals("{\"audit\":true}", saved.entry.reportAuditJson)
+        assertEquals("hash", saved.entry.reportInputHash)
+    }
     private lateinit var database: DiarioDatabase
     private lateinit var repository: RoomDiaryRepository
     private var nowEpochMs = 2_000L
@@ -157,10 +187,19 @@ class RoomDiaryRepositoryTest {
         }
     }
 
-    private suspend fun insertSession() {
+    private suspend fun insertSession(editorialState: String? = "READY") {
         database.sessions().insertSession(
             SessionEntity("session-1", "2026-09-12", CerLevel.B2.name, SessionState.AWAITING_REVIEW.name, 500, 600),
         )
+        editorialState?.let { state ->
+            database.sessions().saveEditorialReport(
+                EditorialReportEntity(
+                    "session-1", "hash", state, "{\"audit\":true}", "Resumen exacto",
+                    "Página 42, ejercicio 3.", "Terminar el ejercicio 5.", "GEMINI",
+                    "gemini-2.5-flash", "p1", "s1", "v1", null, 700,
+                ),
+            )
+        }
     }
 
     private fun draft(topics: String = "Conectores") = DiaryDraftEntity(

@@ -22,6 +22,25 @@ import org.robolectric.RobolectricTestRunner
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 class ArchiveViewModelTest {
+    @Test fun `editorial diary search copy and edit preserve audited prose`() = runTest {
+        val entry = seed("editorial", editorial = true)
+        val vm = ArchiveViewModel(repository, scope = backgroundScope)
+        vm.state.first { it.entries.isNotEmpty() }
+
+        vm.onQuery("contraste de pasados")
+        assertEquals(entry.id, vm.state.first { !it.searching }.entries.single().id)
+        vm.selectDiary(entry.id)
+        assertTrue(vm.copySelected()!!.contains("MATERIAL TRABAJADO\nPágina 42, ejercicio 3."))
+
+        vm.startEditing()
+        vm.onEdit(vm.state.value.editableFields!!.copy(topics = "intento de reemplazo", pedagogicalDate = "2026-09-13"))
+        vm.saveEdit()
+        vm.state.first { !it.busy }
+        val saved = repository.getBySession(entry.sessionId)!!
+        assertEquals("2026-09-13", saved.pedagogicalDate)
+        assertEquals("Conectores concesivos", saved.topics)
+        assertEquals("Contraste de pasados", saved.reportSummary)
+    }
     private lateinit var database: DiarioDatabase
     private lateinit var repository: RoomDiaryRepository
     private var nextId = 0
@@ -154,8 +173,17 @@ class ArchiveViewModelTest {
         }
     }
 
-    private suspend fun seed(session: String, cleaned: Boolean = true): DiaryEntry {
+    private suspend fun seed(session: String, cleaned: Boolean = true, editorial: Boolean = false): DiaryEntry {
         database.sessions().insertSession(SessionEntity(session, "2026-09-12", "B2", SessionState.ARCHIVED.name, 500, 600))
+        database.sessions().saveEditorialReport(
+            EditorialReportEntity(
+                session, "hash", "READY",
+                if (editorial) "{\"summary\":\"Contraste de pasados\",\"material\":[{\"text\":\"Página 42, ejercicio 3.\",\"source_claim_ids\":[\"p42\",\"e3\"]}],\"homework\":[],\"summary_source_claim_ids\":[\"topic\"],\"discarded\":[]}" else "{}",
+                if (editorial) "Contraste de pasados" else "",
+                if (editorial) "Página 42, ejercicio 3." else "",
+                "", "GEMINI", "gemini-2.5-flash", "p", "s", "v", null, 700,
+            ),
+        )
         val result = repository.saveVerified(SessionId(session), DiaryDraftEntity(
             "draft-$session", session, "CONSERVATIVE", "Conectores concesivos", "Debate guiado",
             "42-43", "3 y 4", "Tarea seis", 1_000,

@@ -17,6 +17,7 @@ on:
       - feature/phase5-2-quality
       - "feature/phase5-2-task-*"
       - "feature/phase6-task-*"
+      - feature/second-pass-editorial-report
     tags:
       - "v*"
   pull_request:

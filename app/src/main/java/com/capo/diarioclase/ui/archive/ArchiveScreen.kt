@@ -73,7 +73,11 @@ fun ArchiveScreen(state: ArchiveUiState, viewModel: ArchiveViewModel, onCapture:
                 ) {
                     Text(entry.pedagogicalDate, fontSize = 22.sp, fontWeight = FontWeight.Black)
                     entry.level?.let { Text(it.name, color = Color.LightGray) }
-                    Text(entry.topics.ifBlank { "Sin temas registrados" }, color = Color.LightGray)
+                    Text(
+                        if (entry.hasEditorialReport()) entry.reportSummary.ifBlank { entry.reportMaterial }
+                        else entry.topics.ifBlank { "Sin temas registrados" },
+                        color = Color.LightGray,
+                    )
                     Text("ABRIR", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
@@ -88,13 +92,19 @@ fun ArchiveScreen(state: ArchiveUiState, viewModel: ArchiveViewModel, onCapture:
             val fields = state.editableFields
             if (fields == null) {
                 item {
-                    PermanentField("TEMAS", entry.topics)
-                    PermanentField("ACTIVIDADES REALIZADAS", entry.activities)
-                    PermanentField("PÁGINAS Y EJERCICIOS", entry.pages)
-                    if (entry.completedExercises.isNotBlank()) {
-                        PermanentField("EJERCICIOS HECHOS", entry.completedExercises)
+                    if (entry.hasEditorialReport()) {
+                        PermanentField("RESUMEN", entry.reportSummary)
+                        PermanentField("MATERIAL TRABAJADO", entry.reportMaterial)
+                        PermanentField("TAREA", entry.reportHomework)
+                    } else {
+                        PermanentField("TEMAS", entry.topics)
+                        PermanentField("ACTIVIDADES REALIZADAS", entry.activities)
+                        PermanentField("PÁGINAS Y EJERCICIOS", entry.pages)
+                        if (entry.completedExercises.isNotBlank()) {
+                            PermanentField("EJERCICIOS HECHOS", entry.completedExercises)
+                        }
+                        PermanentField("TAREA", entry.homework)
                     }
-                    PermanentField("TAREA", entry.homework)
                 }
                 item {
                     ArchiveButton("EDITAR", !state.busy, viewModel::startEditing)
@@ -126,13 +136,17 @@ fun ArchiveScreen(state: ArchiveUiState, viewModel: ArchiveViewModel, onCapture:
                         }
                     }
                     TextButton(onClick = { viewModel.onEdit(fields.copy(level = null)) }, enabled = !state.busy, shape = RectangleShape) { Text("SIN NIVEL") }
-                    ArchiveTextField("TEMAS", fields.topics, { viewModel.onEdit(fields.copy(topics = it)) }, !state.busy)
-                    ArchiveTextField("ACTIVIDADES REALIZADAS", fields.activities, { viewModel.onEdit(fields.copy(activities = it)) }, !state.busy)
-                    ArchiveTextField("PÁGINAS Y EJERCICIOS", fields.pages, { viewModel.onEdit(fields.copy(pages = it)) }, !state.busy)
-                    if (fields.completedExercises.isNotBlank()) {
-                        ArchiveTextField("EJERCICIOS HECHOS", fields.completedExercises, { viewModel.onEdit(fields.copy(completedExercises = it)) }, !state.busy)
+                    if (entry.hasEditorialReport()) {
+                        Text("La ficha final está protegida porque conserva el texto auditado. Solo se pueden cambiar la fecha y el nivel.", color = Color.LightGray)
+                    } else {
+                        ArchiveTextField("TEMAS", fields.topics, { viewModel.onEdit(fields.copy(topics = it)) }, !state.busy)
+                        ArchiveTextField("ACTIVIDADES REALIZADAS", fields.activities, { viewModel.onEdit(fields.copy(activities = it)) }, !state.busy)
+                        ArchiveTextField("PÁGINAS Y EJERCICIOS", fields.pages, { viewModel.onEdit(fields.copy(pages = it)) }, !state.busy)
+                        if (fields.completedExercises.isNotBlank()) {
+                            ArchiveTextField("EJERCICIOS HECHOS", fields.completedExercises, { viewModel.onEdit(fields.copy(completedExercises = it)) }, !state.busy)
+                        }
+                        ArchiveTextField("TAREA", fields.homework, { viewModel.onEdit(fields.copy(homework = it)) }, !state.busy)
                     }
-                    ArchiveTextField("TAREA", fields.homework, { viewModel.onEdit(fields.copy(homework = it)) }, !state.busy)
                 }
                 item {
                     ArchiveButton("GUARDAR", !state.busy, viewModel::saveEdit)

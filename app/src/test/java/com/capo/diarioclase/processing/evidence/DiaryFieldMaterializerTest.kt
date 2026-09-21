@@ -44,7 +44,7 @@ class DiaryFieldMaterializerTest {
             ),
         )
 
-        assertEquals("42 (3)", draft.pages)
+        assertEquals("Página 42: ejercicio 3", draft.pages)
         assertEquals("", draft.exercises)
         assertTrue(draft.homework.isEmpty())
     }
@@ -61,6 +61,27 @@ class DiaryFieldMaterializerTest {
 
         assertEquals("", draft.homework)
         assertEquals(listOf("h1"), draft.confirm.map { it.id })
+    }
+
+    @Test
+    fun `session summary is carried into the draft`() {
+        val draft = materializer.materialize(
+            sessionId = "s",
+            mode = InterpretationMode.BALANCED,
+            claims = listOf(claim("p1", ClaimCategory.PAGE, ClaimStatus.PERFORMED, "42")),
+            summary = "Trabajamos vocabulario y la página 42.",
+        )
+        assertEquals("Trabajamos vocabulario y la página 42.", draft.summary)
+    }
+
+    @Test
+    fun `absent summary defaults to empty`() {
+        val draft = materializer.materialize(
+            sessionId = "s",
+            mode = InterpretationMode.BALANCED,
+            claims = emptyList(),
+        )
+        assertEquals("", draft.summary)
     }
 
     private fun claim(

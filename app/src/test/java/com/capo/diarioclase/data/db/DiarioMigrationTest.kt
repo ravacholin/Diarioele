@@ -8,6 +8,11 @@ import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
 import com.capo.diarioclase.core.clock.Clock
 import com.capo.diarioclase.processing.evidence.DiaryDraft
+import com.capo.diarioclase.processing.evidence.ClaimCategory
+import com.capo.diarioclase.processing.evidence.ClaimOrigin
+import com.capo.diarioclase.processing.evidence.ClaimStatus
+import com.capo.diarioclase.processing.evidence.EvidenceClaim
+import com.capo.diarioclase.processing.evidence.EvidenceRef
 import com.capo.diarioclase.processing.evidence.InterpretationMode
 import com.capo.diarioclase.processing.work.RoomProcessingStore
 import kotlinx.coroutines.test.runTest
@@ -21,6 +26,43 @@ import java.util.UUID
 
 @RunWith(RobolectricTestRunner::class)
 class DiarioMigrationTest {
+    @Test fun `version eight to nine preserves legacy diaries and creates editorial table`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "migration-8-9-${UUID.randomUUID()}.db"
+        val v8 = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context).name(name)
+                .callback(object : SupportSQLiteOpenHelper.Callback(8) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL("CREATE TABLE diary_entries (id TEXT NOT NULL PRIMARY KEY,sessionId TEXT NOT NULL,pedagogicalDate TEXT NOT NULL,level TEXT,topics TEXT NOT NULL,activities TEXT NOT NULL,pages TEXT NOT NULL,completedExercises TEXT NOT NULL,homework TEXT NOT NULL,approvedAtEpochMs INTEGER NOT NULL,updatedAtEpochMs INTEGER NOT NULL,temporariesDeleted INTEGER NOT NULL)")
+                        db.execSQL("CREATE UNIQUE INDEX index_diary_entries_sessionId ON diary_entries(sessionId)")
+                        db.execSQL("INSERT INTO diary_entries VALUES ('d','s','2026-09-20',NULL,'tema legacy','','','','',1,1,1)")
+                    }
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = error("unused")
+                }).build(),
+        )
+        v8.writableDatabase
+        v8.close()
+
+        val v9 = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context).name(name)
+                .callback(object : SupportSQLiteOpenHelper.Callback(9) {
+                    override fun onCreate(db: SupportSQLiteDatabase) = error("unused")
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {
+                        DiarioDatabase.MIGRATION_8_9.migrate(db)
+                    }
+                }).build(),
+        )
+        try {
+            val db = v9.writableDatabase
+            assertEquals("tema legacy", queryString(db, "SELECT topics FROM diary_entries"))
+            assertEquals(0, queryCount(db, "editorial_reports"))
+            assertEquals("", queryString(db, "SELECT reportSummary FROM diary_entries"))
+        } finally {
+            v9.close()
+            context.deleteDatabase(name)
+        }
+    }
+
     @Test fun `version two migration protects existing edited drafts through reprocessing`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "migration-${UUID.randomUUID()}.db"
@@ -56,9 +98,11 @@ class DiarioMigrationTest {
                 DiarioDatabase.MIGRATION_4_5,
                 DiarioDatabase.MIGRATION_5_6,
                 DiarioDatabase.MIGRATION_6_7,
+                DiarioDatabase.MIGRATION_7_8,
+                DiarioDatabase.MIGRATION_8_9,
             ).allowMainThreadQueries().build()
         try {
-            assertEquals(7, database.openHelper.writableDatabase.version)
+            assertEquals(9, database.openHelper.writableDatabase.version)
             assertEquals(0, queryCount(database.openHelper.writableDatabase, "transcription_runs"))
             assertEquals(0, queryCount(database.openHelper.writableDatabase, "transcription_checkpoints"))
             assertEquals(0, queryCount(database.openHelper.writableDatabase, "interpretation_cache"))
@@ -113,12 +157,17 @@ class DiarioMigrationTest {
             helper.close()
         }
         val database = Room.databaseBuilder(context, DiarioDatabase::class.java, name)
-            .addMigrations(DiarioDatabase.MIGRATION_5_6, DiarioDatabase.MIGRATION_6_7)
+            .addMigrations(
+                DiarioDatabase.MIGRATION_5_6,
+                DiarioDatabase.MIGRATION_6_7,
+                DiarioDatabase.MIGRATION_7_8,
+                DiarioDatabase.MIGRATION_8_9,
+            )
             .allowMainThreadQueries().build()
         try {
-            // Abrir con Room dispara la validación completa del esquema v7.
+            // Abrir con Room dispara la validación completa del esquema v8.
             val db = database.openHelper.writableDatabase
-            assertEquals(7, db.version)
+            assertEquals(9, db.version)
             // Datos v5 sobreviven.
             assertEquals(1, queryCount(db, "sessions"))
             assertEquals(2, queryCount(db, "evidence_claims"))
@@ -174,11 +223,15 @@ class DiarioMigrationTest {
             helper.close()
         }
         val database = Room.databaseBuilder(context, DiarioDatabase::class.java, name)
-            .addMigrations(DiarioDatabase.MIGRATION_6_7)
+            .addMigrations(
+                DiarioDatabase.MIGRATION_6_7,
+                DiarioDatabase.MIGRATION_7_8,
+                DiarioDatabase.MIGRATION_8_9,
+            )
             .allowMainThreadQueries().build()
         try {
-            val db = database.openHelper.writableDatabase // valida el esquema v7 completo
-            assertEquals(7, db.version)
+            val db = database.openHelper.writableDatabase // valida el esquema v8 completo
+            assertEquals(9, db.version)
             assertEquals(0, queryCount(db, "draft_field_revisions"))
             // La ficha legacy editada propaga la máscara a los cinco campos.
             val legacy = database.sessions().draft("legacy")!!
@@ -192,7 +245,22 @@ class DiarioMigrationTest {
             store.saveFieldEdit(SessionId("s2"), com.capo.diarioclase.processing.semantic.DiaryField.HOMEWORK, "Ejercicio 4")
             assertTrue(store.isFieldEdited(SessionId("s2"), com.capo.diarioclase.processing.semantic.DiaryField.HOMEWORK))
             assertFalse(store.isFieldEdited(SessionId("s2"), com.capo.diarioclase.processing.semantic.DiaryField.TOPICS))
-            store.saveEvidence(SessionId("s2"), emptyList(), DiaryDraft("s2", InterpretationMode.CONSERVATIVE, "Auto 2", "", "", "", "Tarea automática", emptyList(), emptyList()))
+            store.saveEvidence(
+                SessionId("s2"),
+                listOf(
+                    EvidenceClaim(
+                        id = "claim-1",
+                        category = ClaimCategory.PAGE,
+                        value = "1",
+                        normalizedValue = "1",
+                        status = ClaimStatus.PERFORMED,
+                        confidence = 1.0,
+                        origin = ClaimOrigin.LOCAL_RULE,
+                        evidence = EvidenceRef(BlockId("b"), 0, 1, "página 1"),
+                    ),
+                ),
+                DiaryDraft("s2", InterpretationMode.CONSERVATIVE, "Auto 2", "", "", "", "Tarea automática", emptyList(), emptyList()),
+            )
             val protected = database.sessions().draft("s2")!!
             assertEquals("Ejercicio 4", protected.homework) // protegida
             assertEquals("Auto 2", protected.topics) // no editada, se actualiza
@@ -200,6 +268,66 @@ class DiarioMigrationTest {
             // Rechazar un claim registra una revisión.
             store.reviewClaim("claim-1", ReviewAction.REJECT, null)
             assertEquals(ReviewAction.REJECT, store.revisions("claim-1").single().action)
+        } finally {
+            database.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test fun `version seven to eight adds reason and summary preserving data`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "migration-7-8-${UUID.randomUUID()}.db"
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context).name(name)
+                .callback(object : SupportSQLiteOpenHelper.Callback(7) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL("CREATE TABLE sessions (id TEXT NOT NULL PRIMARY KEY,pedagogicalDate TEXT NOT NULL,level TEXT,state TEXT NOT NULL,startedAtEpochMs INTEGER NOT NULL,updatedAtEpochMs INTEGER NOT NULL)")
+                        db.execSQL("CREATE TABLE blocks (id TEXT NOT NULL PRIMARY KEY,sessionId TEXT NOT NULL,ordinal INTEGER NOT NULL,startedAtEpochMs INTEGER NOT NULL,endedAtEpochMs INTEGER,closeReason TEXT,FOREIGN KEY(sessionId) REFERENCES sessions(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+                        db.execSQL("CREATE INDEX index_blocks_sessionId ON blocks(sessionId)")
+                        db.execSQL("CREATE TABLE audio_segments (id TEXT NOT NULL PRIMARY KEY,blockId TEXT NOT NULL,ordinal INTEGER NOT NULL,path TEXT NOT NULL,byteCount INTEGER NOT NULL,durationMs INTEGER NOT NULL,sha256 TEXT,state TEXT NOT NULL,transcriptionAttempts INTEGER NOT NULL,FOREIGN KEY(blockId) REFERENCES blocks(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+                        db.execSQL("CREATE INDEX index_audio_segments_blockId ON audio_segments(blockId)")
+                        db.execSQL("CREATE UNIQUE INDEX index_audio_segments_path ON audio_segments(path)")
+                        db.execSQL("CREATE TABLE markers (id TEXT NOT NULL PRIMARY KEY,sessionId TEXT NOT NULL,blockId TEXT NOT NULL,absoluteEpochMs INTEGER NOT NULL,offsetMs INTEGER NOT NULL,type TEXT NOT NULL,note TEXT,FOREIGN KEY(blockId) REFERENCES blocks(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+                        db.execSQL("CREATE INDEX index_markers_sessionId ON markers(sessionId)")
+                        db.execSQL("CREATE INDEX index_markers_blockId ON markers(blockId)")
+                        DiarioDatabase.MIGRATION_1_2.migrate(db)
+                        DiarioDatabase.MIGRATION_2_3.migrate(db)
+                        DiarioDatabase.MIGRATION_3_4.migrate(db)
+                        DiarioDatabase.MIGRATION_4_5.migrate(db)
+                        DiarioDatabase.MIGRATION_5_6.migrate(db)
+                        DiarioDatabase.MIGRATION_6_7.migrate(db)
+                        db.execSQL("INSERT INTO sessions VALUES ('legacy','2026-09-17',NULL,'AWAITING_REVIEW',1,1)")
+                        db.execSQL("INSERT INTO diary_drafts VALUES ('draft','legacy','CONSERVATIVE','Tema','Actividad','14','7','Tarea',1,0,0,0,0,0,0)")
+                        db.execSQL("INSERT INTO evidence_claims VALUES ('c1','legacy','PAGE','14','14','PERFORMED',0.9,'GEMINI','b1',1000,2000,'página catorce',1,NULL,NULL,'c1',0.9,0.9,0)")
+                    }
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = error("unused")
+                }).build(),
+        )
+        try {
+            assertEquals(7, helper.writableDatabase.version)
+        } finally {
+            helper.close()
+        }
+        val database = Room.databaseBuilder(context, DiarioDatabase::class.java, name)
+            .addMigrations(DiarioDatabase.MIGRATION_7_8, DiarioDatabase.MIGRATION_8_9)
+            .allowMainThreadQueries().build()
+        try {
+            val db = database.openHelper.writableDatabase // valida el esquema v8 completo
+            assertEquals(9, db.version)
+            // Datos v7 sobreviven; las columnas nuevas traen su default.
+            assertEquals("Tema", queryString(db, "SELECT topics FROM diary_drafts WHERE id='draft'"))
+            assertEquals("", queryString(db, "SELECT summary FROM diary_drafts WHERE id='draft'"))
+            assertEquals(1, queryCount(db, "evidence_claims"))
+            assertEquals(1, queryCount(db, "evidence_claims WHERE reason IS NULL"))
+
+            // Las columnas nuevas se escriben y leen a través del store (mapeo Room correcto).
+            val store = RoomProcessingStore(database, Clock { 9 })
+            database.sessions().insertSession(SessionEntity("s2", "2026-09-17", null, "EXTRACTING", 2, 2))
+            store.saveEvidence(
+                SessionId("s2"), emptyList(),
+                DiaryDraft("s2", InterpretationMode.CONSERVATIVE, "Auto", "", "", "", "", emptyList(), emptyList(), summary = "Resumen de prueba"),
+            )
+            assertEquals("Resumen de prueba", database.sessions().draft("s2")!!.summary)
         } finally {
             database.close()
             context.deleteDatabase(name)

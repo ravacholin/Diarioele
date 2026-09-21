@@ -15,6 +15,7 @@ import com.capo.diarioclase.processing.evidence.InterpretationMode
 import com.capo.diarioclase.processing.evidence.InterpretationProjector
 import com.capo.diarioclase.processing.evidence.LiteralClaimExtractor
 import com.capo.diarioclase.processing.evidence.PagesAndExercisesComposer
+import com.capo.diarioclase.processing.editorial.EditorialReportGenerator
 import com.capo.diarioclase.processing.transcription.AudioWindow
 import com.capo.diarioclase.processing.transcription.AudioWindowPlan
 import com.capo.diarioclase.processing.transcription.AudioWindowPlanner
@@ -26,6 +27,7 @@ import com.capo.diarioclase.processing.transcription.WindowTranscriptionEngine
 import com.capo.diarioclase.recording.audio.ReadySegment
 import java.io.File
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
@@ -128,6 +130,7 @@ class TranscriptionCoordinator(
     ),
     private val pcmReader: (File, AudioWindowPlan) -> FloatArray = PcmWindowReader::read,
     private val interpreter: SemanticInterpreter? = null,
+    private val editorialGenerator: EditorialReportGenerator? = null,
 ) {
     suspend fun process(
         sessionId: SessionId,
@@ -361,9 +364,9 @@ class TranscriptionCoordinator(
         // La interpretación remota (router + fallback local) reemplaza a la extracción
         // directa cuando hay un intérprete compuesto; el modo se aplica siempre localmente
         // al proyectar, sin volver a llamar a la red.
-        val claims = interpreter?.interpret(sessionId, transcript, signals = store.loadSignals(sessionId))?.claims
-            ?: reducer.reduce(extractor.extract(transcript))
-        val generatedDraft = materializer.materialize(sessionId.value, mode, claims)
+        val outcome = interpreter?.interpret(sessionId, transcript, signals = store.loadSignals(sessionId))
+        val claims = outcome?.claims ?: reducer.reduce(extractor.extract(transcript))
+        val generatedDraft = materializer.materialize(sessionId.value, mode, claims, outcome?.summary.orEmpty())
         val draft = store.draft(sessionId)?.takeIf { it.userEdited }?.let { edited ->
             generatedDraft.copy(
                 topics = edited.topics,
@@ -374,6 +377,14 @@ class TranscriptionCoordinator(
             )
         } ?: generatedDraft
         store.saveEvidence(sessionId, claims, draft)
+        try {
+            editorialGenerator?.generate(sessionId, mode, claims)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            // La segunda pasada no revierte Whisper ni la evidencia ya persistida. El store
+            // editorial conserva su estado fallido y la pantalla permite regenerar.
+        }
         store.updateSession(sessionId, SessionState.AWAITING_REVIEW)
         store.saveRun(
             run.copy(

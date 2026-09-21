@@ -131,6 +131,8 @@ data class EvidenceClaimEntity(
     val declaredConfidence: Double = 0.0,
     val effectiveConfidence: Double = 0.0,
     val claimOrdinal: Int = 0,
+    // Justificación breve del claim (Nivel 3). Aditiva, con default para no romper filas legacy.
+    val reason: String? = null,
 )
 
 @Entity(
@@ -161,6 +163,8 @@ data class DiaryDraftEntity(
     val editedPages: Boolean = false,
     val editedExercises: Boolean = false,
     val editedHomework: Boolean = false,
+    // Resumen de la clase generado por IA (Nivel 3). Aditiva, con default para filas legacy.
+    val summary: String = "",
 )
 
 /** Acción de revisión del docente sobre un claim (Fase 6, Q4). */
@@ -214,6 +218,37 @@ data class DiaryEntryEntity(
     val approvedAtEpochMs: Long,
     val updatedAtEpochMs: Long,
     val temporariesDeleted: Boolean,
+    val reportSummary: String = "",
+    val reportMaterial: String = "",
+    val reportHomework: String = "",
+    val reportAuditJson: String = "",
+    val reportProvider: String? = null,
+    val reportModelId: String? = null,
+    val reportInputHash: String = "",
+    val reportPromptVersion: String = "",
+    val reportSchemaVersion: String = "",
+    val reportValidatorVersion: String = "",
+)
+
+@Entity(
+    tableName = "editorial_reports",
+    indices = [Index("sessionId", unique = true)],
+)
+data class EditorialReportEntity(
+    @PrimaryKey val sessionId: String,
+    val inputHash: String,
+    val state: String,
+    val rawJson: String,
+    val summary: String,
+    val materialText: String,
+    val homeworkText: String,
+    val provider: String?,
+    val modelId: String?,
+    val promptVersion: String,
+    val schemaVersion: String,
+    val validatorVersion: String,
+    val failure: String?,
+    val updatedAtEpochMs: Long,
 )
 
 @Entity(tableName = "app_settings")

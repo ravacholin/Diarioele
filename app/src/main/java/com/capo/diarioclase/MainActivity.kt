@@ -65,6 +65,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     },
+                    editorialReports = app.editorialReportStore.observeLatest(),
                     observeProgress = { app.transcriptionScheduler.observeProgress(it) },
                 ) as T
                 ArchiveViewModel::class.java -> ArchiveViewModel(app.diaryRepository) as T
@@ -132,6 +133,7 @@ class MainActivity : ComponentActivity() {
                                         onExportCorpus = { exportCorpus.launch("corpus-diarioele.jsonl") },
                                         onImportCorpus = { importCorpus.launch(arrayOf("application/json")) },
                                         onRetryInterpretation = { capture.onRetryInterpretation(archiveState.mode) },
+                                        onRegenerateEditorial = { capture.onRegenerateEditorialReport(archiveState.mode) },
                                     )
                                 }
                             }
