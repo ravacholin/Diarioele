@@ -1,11 +1,13 @@
 package com.capo.diarioclase.processing.transcription
 
 import com.capo.diarioclase.recording.audio.CHANNELS
+import com.capo.diarioclase.recording.audio.LEGACY_PCM16_BYTES_PER_SAMPLE
 import com.capo.diarioclase.recording.audio.MuLawCodec
 import com.capo.diarioclase.recording.audio.SAMPLE_RATE
 import com.capo.diarioclase.recording.audio.STORED_BITS_PER_SAMPLE
 import com.capo.diarioclase.recording.audio.STORED_BYTES_PER_SAMPLE
 import com.capo.diarioclase.recording.audio.WAVE_FORMAT_MULAW
+import com.capo.diarioclase.recording.audio.WAVE_FORMAT_PCM
 import java.io.File
 import java.io.RandomAccessFile
 import kotlin.math.min
@@ -48,13 +50,13 @@ object PcmWindowReader {
         require(plan.endMs >= plan.startMs) { "La ventana de audio es inválida" }
 
         return RandomAccessFile(file, "r").use { input ->
-            val data = locateMuLawData(input)
+            val data = locateData(input)
 
             val declaredDataBytes = data.byteLength
             val availableDataBytes = (input.length() - data.offset).coerceAtLeast(0L)
             require(declaredDataBytes <= availableDataBytes) { "El WAV está truncado" }
 
-            val bytesPerSample = STORED_BYTES_PER_SAMPLE.toLong()
+            val bytesPerSample = data.bytesPerSample.toLong()
             val firstSample = plan.startMs * SAMPLE_RATE / 1_000L
             val lastSample = plan.endMs * SAMPLE_RATE / 1_000L
             val totalSamples = declaredDataBytes / bytesPerSample
@@ -64,52 +66,72 @@ object PcmWindowReader {
             }
 
             val sampleCountLong = lastSample - firstSample
-            require(sampleCountLong <= Int.MAX_VALUE) { "La ventana es demasiado grande" }
+            require(sampleCountLong <= Int.MAX_VALUE / data.bytesPerSample) { "La ventana es demasiado grande" }
             val sampleCount = sampleCountLong.toInt()
             val samples = FloatArray(sampleCount)
-            // Lectura en bloque: una sola llamada de E/S. Cada byte µ-law se decodifica a PCM16
-            // (misma normalización que antes) para entregárselo a Whisper.
-            val rawBytes = ByteArray(sampleCount)
+            // Lectura en bloque: una sola llamada de E/S. µ-law se decodifica a PCM16; los
+            // segmentos PCM16 heredados se leen tal cual. Misma normalización en ambos casos.
+            val rawBytes = ByteArray(sampleCount * data.bytesPerSample)
             input.seek(data.offset + firstSample * bytesPerSample)
             input.readFully(rawBytes)
-            for (index in 0 until sampleCount) {
-                samples[index] = MuLawCodec.decode(rawBytes[index]).toFloat() / 32_768f
+            if (data.legacyPcm16) {
+                for (index in 0 until sampleCount) {
+                    val low = rawBytes[index * 2].toInt() and 0xff
+                    val high = rawBytes[index * 2 + 1].toInt()
+                    samples[index] = ((high shl 8) or low).toShort().toFloat() / 32_768f
+                }
+            } else {
+                for (index in 0 until sampleCount) {
+                    samples[index] = MuLawCodec.decode(rawBytes[index]).toFloat() / 32_768f
+                }
             }
             samples
         }
     }
 
-    private data class DataChunk(val offset: Long, val byteLength: Long)
+    private data class DataChunk(val offset: Long, val byteLength: Long, val legacyPcm16: Boolean) {
+        val bytesPerSample get() = if (legacyPcm16) LEGACY_PCM16_BYTES_PER_SAMPLE else STORED_BYTES_PER_SAMPLE
+    }
 
-    /** Recorre los bloques RIFF, valida el `fmt ` µ-law y devuelve la ubicación del bloque `data`. */
-    private fun locateMuLawData(input: RandomAccessFile): DataChunk {
+    /**
+     * Recorre los bloques RIFF, valida el `fmt ` y devuelve la ubicación del bloque `data`.
+     * Acepta µ-law de 8 bits y también PCM16, el formato de los segmentos grabados antes de
+     * la migración a µ-law que pueden seguir pendientes de transcripción.
+     */
+    private fun locateData(input: RandomAccessFile): DataChunk {
         val length = input.length()
         require(length >= 12L) { "El archivo no contiene un encabezado WAV completo" }
         require(input.readAsciiAt(0, 4) == "RIFF") { "Falta la cabecera RIFF" }
         require(input.readAsciiAt(8, 4) == "WAVE") { "Falta la cabecera WAVE" }
 
         var position = 12L
-        var validatedFmt = false
-        var dataChunk: DataChunk? = null
+        var legacyPcm16: Boolean? = null
+        var dataChunk: Pair<Long, Long>? = null
         while (position + 8L <= length) {
             val id = input.readAsciiAt(position, 4)
             val size = input.readIntLeAt(position + 4L).toLong() and 0xffffffffL
             val body = position + 8L
             when (id) {
                 "fmt " -> {
-                    require(input.readShortLeAt(body) == WAVE_FORMAT_MULAW) { "El WAV no usa µ-law (G.711)" }
+                    val format = input.readShortLeAt(body)
+                    require(format == WAVE_FORMAT_MULAW || format == WAVE_FORMAT_PCM) {
+                        "El WAV no usa µ-law (G.711) ni PCM16"
+                    }
+                    val legacy = format == WAVE_FORMAT_PCM
                     require(input.readShortLeAt(body + 2L) == CHANNELS) { "El WAV debe ser mono" }
                     require(input.readIntLeAt(body + 4L) == SAMPLE_RATE) { "El WAV debe usar 16 kHz" }
-                    require(input.readShortLeAt(body + 14L) == STORED_BITS_PER_SAMPLE) { "El WAV debe usar µ-law de 8 bits" }
-                    validatedFmt = true
+                    val bits = if (legacy) LEGACY_PCM16_BYTES_PER_SAMPLE * 8 else STORED_BITS_PER_SAMPLE
+                    require(input.readShortLeAt(body + 14L) == bits) { "El WAV debe usar µ-law de 8 bits o PCM de 16 bits" }
+                    legacyPcm16 = legacy
                 }
-                "data" -> dataChunk = DataChunk(body, size)
+                "data" -> dataChunk = body to size
             }
-            if (validatedFmt && dataChunk != null) break
+            if (legacyPcm16 != null && dataChunk != null) break
             position = body + size + (size and 1L)
         }
-        require(validatedFmt) { "El WAV no contiene un bloque fmt válido" }
-        return dataChunk ?: throw IllegalArgumentException("El WAV no contiene datos de audio")
+        val legacy = requireNotNull(legacyPcm16) { "El WAV no contiene un bloque fmt válido" }
+        val (offset, size) = dataChunk ?: throw IllegalArgumentException("El WAV no contiene datos de audio")
+        return DataChunk(offset, size, legacy)
     }
 
     private fun RandomAccessFile.readAsciiAt(offset: Long, length: Int): String {
