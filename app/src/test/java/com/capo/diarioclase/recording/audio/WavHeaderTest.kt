@@ -10,6 +10,13 @@ class WavHeaderTest {
   assertEquals(16_000,b.leInt(28));assertEquals(1,b.leShort(32));assertEquals(8,b.leShort(34))
   assertEquals(32_000,b.leInt(46));assertEquals(32_000,b.leInt(54));assertEquals(32_050,b.leInt(4))
  }
+ @Test fun `legacy header describes sixteen kHz mono PCM16`() {
+  val b=WavHeader.forLegacyPcm16(32_000).encode()
+  assertEquals(44,b.size);assertEquals("data",String(b.copyOfRange(36,40)))
+  assertEquals(1,b.leShort(20));assertEquals(1,b.leShort(22));assertEquals(16_000,b.leInt(24))
+  assertEquals(32_000,b.leInt(28));assertEquals(2,b.leShort(32));assertEquals(16,b.leShort(34))
+  assertEquals(32_000,b.leInt(40));assertEquals(32_036,b.leInt(4))
+ }
 }
 private fun ByteArray.leShort(i:Int)=((this[i].toInt() and 255) or ((this[i+1].toInt() and 255) shl 8))
 private fun ByteArray.leInt(i:Int)=leShort(i) or (leShort(i+2) shl 16)

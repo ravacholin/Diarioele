@@ -6,8 +6,10 @@ package com.capo.diarioclase.recording.audio
  * de muestras (obligatorio para formatos no-PCM). El cuerpo se agrega después y los tamaños se
  * parchean al cerrar el segmento.
  */
-class WavHeader private constructor(private val dataBytes: Int) {
-    fun encode(): ByteArray = ByteArray(WAV_HEADER_BYTES.toInt()).also { out ->
+class WavHeader private constructor(private val dataBytes: Int, private val legacyPcm16: Boolean = false) {
+    fun encode(): ByteArray = if (legacyPcm16) encodeLegacyPcm16() else encodeMuLaw()
+
+    private fun encodeMuLaw(): ByteArray = ByteArray(WAV_HEADER_BYTES.toInt()).also { out ->
         // RIFF: tamaño = archivo total - 8 = (cabecera 58 - 8) + dataBytes = 50 + dataBytes
         out.putAscii(0, "RIFF"); out.putIntLe(4, 50 + dataBytes); out.putAscii(8, "WAVE")
         // fmt (18 bytes de cuerpo, WAVEFORMATEX con cbSize = 0)
@@ -21,7 +23,21 @@ class WavHeader private constructor(private val dataBytes: Int) {
         // data
         out.putAscii(50, "data"); out.putIntLe(54, dataBytes)
     }
-    companion object { fun forMuLaw(dataBytes: Int) = WavHeader(dataBytes.coerceAtLeast(0)) }
+
+    /** Cabecera PCM16 de 44 bytes usada antes de µ-law; solo para reparar segmentos heredados. */
+    private fun encodeLegacyPcm16(): ByteArray = ByteArray(LEGACY_PCM16_HEADER_BYTES.toInt()).also { out ->
+        out.putAscii(0, "RIFF"); out.putIntLe(4, 36 + dataBytes); out.putAscii(8, "WAVE")
+        out.putAscii(12, "fmt "); out.putIntLe(16, 16); out.putShortLe(20, WAVE_FORMAT_PCM)
+        out.putShortLe(22, CHANNELS); out.putIntLe(24, SAMPLE_RATE)
+        out.putIntLe(28, SAMPLE_RATE * CHANNELS * LEGACY_PCM16_BYTES_PER_SAMPLE)
+        out.putShortLe(32, CHANNELS * LEGACY_PCM16_BYTES_PER_SAMPLE); out.putShortLe(34, 16)
+        out.putAscii(36, "data"); out.putIntLe(40, dataBytes)
+    }
+
+    companion object {
+        fun forMuLaw(dataBytes: Int) = WavHeader(dataBytes.coerceAtLeast(0))
+        fun forLegacyPcm16(dataBytes: Int) = WavHeader(dataBytes.coerceAtLeast(0), legacyPcm16 = true)
+    }
 }
 const val SAMPLE_RATE = 16_000
 const val CHANNELS = 1
@@ -29,6 +45,10 @@ const val WAVE_FORMAT_MULAW = 7
 const val STORED_BITS_PER_SAMPLE = 8
 const val STORED_BYTES_PER_SAMPLE = 1
 const val WAV_HEADER_BYTES = 58L
+/** Segmentos grabados antes de µ-law (hasta 0.6.0 inclusive): PCM16 con cabecera de 44 bytes. */
+const val WAVE_FORMAT_PCM = 1
+const val LEGACY_PCM16_BYTES_PER_SAMPLE = 2
+const val LEGACY_PCM16_HEADER_BYTES = 44L
 private fun ByteArray.putAscii(i:Int,s:String)=s.forEachIndexed{x,c->this[i+x]=c.code.toByte()}
 private fun ByteArray.putShortLe(i:Int,v:Int){this[i]=v.toByte();this[i+1]=(v ushr 8).toByte()}
 private fun ByteArray.putIntLe(i:Int,v:Int){this[i]=v.toByte();this[i+1]=(v ushr 8).toByte();this[i+2]=(v ushr 16).toByte();this[i+3]=(v ushr 24).toByte()}

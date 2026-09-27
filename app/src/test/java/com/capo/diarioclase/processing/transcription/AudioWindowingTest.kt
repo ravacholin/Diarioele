@@ -55,6 +55,36 @@ class AudioWindowingTest {
         PcmWindowReader.read(file, AudioWindowPlan(0, 0, 2_000, 2_000))
     }
 
+    @Test
+    fun `reader still decodes legacy PCM16 segments recorded before mu-law`() {
+        val file = temporaryFolder.newFile("legacy.ready.wav")
+        RandomAccessFile(file, "rw").use { output ->
+            output.write(WavHeader.forLegacyPcm16(32_000 * 2).encode())
+            repeat(32_000) { index ->
+                output.write(index and 0xff)
+                output.write((index ushr 8) and 0xff)
+            }
+        }
+
+        val samples = PcmWindowReader.read(
+            file,
+            AudioWindowPlan(0, 1_000, 2_000, 2_000),
+        )
+
+        assertEquals(16_000, samples.size)
+        assertEquals(16_000f / 32_768f, samples.first(), 0.00001f)
+        assertEquals(31_999f / 32_768f, samples.last(), 0.00001f)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `reader rejects unsupported encodings`() {
+        val file = temporaryFolder.newFile("float.ready.wav")
+        val header = WavHeader.forLegacyPcm16(0).encode()
+        header[20] = 3 // WAVE_FORMAT_IEEE_FLOAT
+        file.writeBytes(header)
+        PcmWindowReader.read(file, AudioWindowPlan(0, 0, 0, 0))
+    }
+
     private fun temporaryWav(samples: ShortArray): File {
         val file = temporaryFolder.newFile("segment.ready.wav")
         RandomAccessFile(file, "rw").use { output ->

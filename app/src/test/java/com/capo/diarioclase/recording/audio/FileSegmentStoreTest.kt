@@ -23,6 +23,18 @@ class FileSegmentStoreTest {
   assertEquals(500,repaired.durationMs);assertEquals(SegmentState.READY,repaired.state)
   assertTrue(store.repairOpenSegments().isEmpty())
  }
+ @Test fun `repair keeps legacy PCM16 open segments intact`()=runTest{
+  val store=FileSegmentStore(folder.root)
+  val legacy=java.io.File(folder.root,"block__0__legacy-id.open.wav")
+  val pcm=ByteArray(16_000*2){(it%7).toByte()}
+  legacy.writeBytes(WavHeader.forLegacyPcm16(0).encode()+pcm)
+  val repaired=store.repairOpenSegments().single()
+  assertEquals(1_000,repaired.durationMs)
+  val bytes=java.io.File(repaired.path).readBytes()
+  assertEquals(44+pcm.size,bytes.size)
+  assertArrayEquals(WavHeader.forLegacyPcm16(pcm.size).encode(),bytes.copyOfRange(0,44))
+  assertArrayEquals(pcm,bytes.copyOfRange(44,bytes.size))
+ }
  @Test fun `delete reports missing file as failure`()=runTest{
   val store=FileSegmentStore(folder.root)
   assertTrue(store.delete(com.capo.diarioclase.data.db.SegmentId("missing")) is DeleteResult.Failed)
