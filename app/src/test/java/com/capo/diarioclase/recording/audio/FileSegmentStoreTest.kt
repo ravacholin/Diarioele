@@ -35,6 +35,25 @@ class FileSegmentStoreTest {
   assertArrayEquals(WavHeader.forLegacyPcm16(pcm.size).encode(),bytes.copyOfRange(0,44))
   assertArrayEquals(pcm,bytes.copyOfRange(44,bytes.size))
  }
+ @Test fun `append syncs every two seconds of audio instead of every buffer`()=runTest{
+  var syncs=0
+  val store=FileSegmentStore(folder.root,syncFile={syncs++;it.fd.sync()})
+  val open=store.open(BlockId("block"),0)
+  // 5 s de audio en bloques de 4096 muestras (~256 ms): antes eran 20 sincronizaciones.
+  repeat(20){store.append(open,ShortArray(4096){(it%50).toShort()},4096)}
+  assertEquals(2,syncs)
+  val ready=store.close(open)
+  assertEquals(3,syncs)
+  assertEquals(20L*4096*1_000/16_000,ready.durationMs)
+  assertEquals(WAV_HEADER_BYTES+20L*4096,java.io.File(ready.path).length())
+ }
+ @Test fun `audio appended without close survives repair`()=runTest{
+  val store=FileSegmentStore(folder.root,syncFile={})
+  val open=store.open(BlockId("block"),0)
+  store.append(open,ShortArray(4_000){3},4_000);store.append(open,ShortArray(4_000){3},4_000)
+  val repaired=FileSegmentStore(folder.root).repairOpenSegments().single()
+  assertEquals(500,repaired.durationMs)
+ }
  @Test fun `delete reports missing file as failure`()=runTest{
   val store=FileSegmentStore(folder.root)
   assertTrue(store.delete(com.capo.diarioclase.data.db.SegmentId("missing")) is DeleteResult.Failed)

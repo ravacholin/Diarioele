@@ -24,6 +24,7 @@ import com.capo.diarioclase.processing.transcription.TranscriptionFailure
 import com.capo.diarioclase.processing.transcription.WindowTranscriptResult
 import com.capo.diarioclase.processing.transcription.WindowTranscriptionEngine
 import com.capo.diarioclase.recording.audio.ReadySegment
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -191,6 +192,123 @@ class TranscriptionCoordinatorTest {
     }
 
     @Test
+    fun `a window that exceeds its time limit fails as timeout keeping the checkpoint`() = runTest {
+        val store = FakeStore(durations = linkedMapOf("a" to 65_000L))
+        store.savedRun = runEntity(processedMs = 28_000, totalMs = 65_000)
+        store.savedCheckpoints["a"] = checkpoint("a", 28_000, 1, 3, 65_000)
+        val engine = object : WindowTranscriptionEngine {
+            override suspend fun transcribe(window: AudioWindow): WindowTranscriptResult {
+                awaitCancellation()
+            }
+        }
+
+        val outcome = coordinator(store, engine, windowTimeoutMs = 1_000).processNext(
+            SessionId("day"),
+            InterpretationMode.CONSERVATIVE,
+        )
+
+        assertEquals(TranscriptionFailure.TIMEOUT, (outcome as ProcessingStepOutcome.Failed).failure)
+        assertTrue(outcome.retryable)
+        assertEquals(28_000, store.savedCheckpoints.getValue("a").confirmedUntilMs)
+    }
+
+    @Test
+    fun `a slow remote interpretation falls back to local without failing audio`() = runTest {
+        val store = FakeStore(durations = linkedMapOf("a" to 1_000L))
+        val engine = RecordingWindowEngine {
+            WindowTranscriptResult.Success(listOf(span(it, "Vamos a la página diez")))
+        }
+        val interpreter = object : SemanticInterpreter {
+            override suspend fun interpret(
+                sessionId: SessionId,
+                spans: List<TranscriptSpan>,
+                budget: InterpretationBudget,
+                signals: com.capo.diarioclase.processing.semantic.LocalInterpretationSignals,
+            ): InterpretationOutcome = awaitCancellation()
+        }
+
+        val result = coordinator(
+            store,
+            engine,
+            interpreter,
+            windowTimeoutMs = 1_000,
+            interpretationTimeoutMs = 5_000,
+        ).process(SessionId("day"), InterpretationMode.CONSERVATIVE)
+
+        assertTrue(result is ProcessingOutcome.Complete)
+        assertEquals("10", store.generatedDraft?.pages)
+        assertTrue(store.failedSegments.isEmpty())
+        assertEquals(TranscriptionRunState.COMPLETED.name, store.savedRun?.state)
+    }
+
+    @Test
+    fun `a failing interpreter falls back to local extraction`() = runTest {
+        val store = FakeStore(durations = linkedMapOf("a" to 1_000L))
+        val engine = RecordingWindowEngine {
+            WindowTranscriptResult.Success(listOf(span(it, "Vamos a la página diez")))
+        }
+        val interpreter = object : SemanticInterpreter {
+            override suspend fun interpret(
+                sessionId: SessionId,
+                spans: List<TranscriptSpan>,
+                budget: InterpretationBudget,
+                signals: com.capo.diarioclase.processing.semantic.LocalInterpretationSignals,
+            ): InterpretationOutcome = error("boom")
+        }
+
+        val result = coordinator(store, engine, interpreter)
+            .process(SessionId("day"), InterpretationMode.CONSERVATIVE)
+
+        assertTrue(result is ProcessingOutcome.Complete)
+        assertEquals("10", store.generatedDraft?.pages)
+    }
+
+    @Test
+    fun `failCurrent after full transcription fails the run but not the audio`() = runTest {
+        val store = FakeStore(durations = linkedMapOf("a" to 1_000L))
+        store.segmentStates["a"] = SegmentState.TRANSCRIBED
+        store.savedCheckpoints["a"] = checkpoint("a", 1_000, 1, 1, 1_000)
+            .copy(state = TranscriptionRunState.COMPLETED.name)
+        store.savedRun = runEntity(processedMs = 1_000, totalMs = 1_000)
+
+        coordinator(store, RecordingWindowEngine { error("unused") })
+            .failCurrent(SessionId("day"), TranscriptionFailure.INTERNAL, retryable = true)
+
+        assertEquals(TranscriptionRunState.FAILED.name, store.savedRun?.state)
+        assertEquals(TranscriptionFailure.INTERNAL.name, store.savedRun?.failure)
+        assertTrue(store.failedSegments.isEmpty())
+        assertEquals(SegmentState.TRANSCRIBED, store.segmentStates["a"])
+        assertEquals(TranscriptionRunState.COMPLETED.name, store.savedCheckpoints.getValue("a").state)
+    }
+
+    @Test
+    fun `failCurrent during a pending segment fails that segment`() = runTest {
+        val store = FakeStore(durations = linkedMapOf("a" to 65_000L))
+        store.segmentStates["a"] = SegmentState.TRANSCRIBING
+        store.savedCheckpoints["a"] = checkpoint("a", 28_000, 1, 3, 65_000)
+        store.savedRun = runEntity(processedMs = 28_000, totalMs = 65_000)
+
+        coordinator(store, RecordingWindowEngine { error("unused") })
+            .failCurrent(SessionId("day"), TranscriptionFailure.INTERNAL, retryable = true)
+
+        assertEquals(listOf("a"), store.failedSegments)
+        assertEquals(28_000, store.savedCheckpoints.getValue("a").confirmedUntilMs)
+        assertEquals(TranscriptionRunState.FAILED.name, store.savedRun?.state)
+    }
+
+    @Test
+    fun `failCurrent without a run still records the failure`() = runTest {
+        val store = FakeStore(durations = linkedMapOf("a" to 1_000L))
+
+        coordinator(store, RecordingWindowEngine { error("unused") })
+            .failCurrent(SessionId("day"), TranscriptionFailure.INTERNAL, retryable = true)
+
+        assertEquals(TranscriptionRunState.FAILED.name, store.savedRun?.state)
+        assertEquals(1_000L, store.savedRun?.totalMs)
+        assertTrue(store.failedSegments.isEmpty())
+    }
+
+    @Test
     fun `durable pause stops before reading or transcribing another window`() = runTest {
         val store = FakeStore(durations = linkedMapOf("a" to 65_000L))
         store.savedRun = runEntity(
@@ -250,6 +368,8 @@ class TranscriptionCoordinatorTest {
         store: FakeStore,
         engine: WindowTranscriptionEngine,
         interpreter: SemanticInterpreter? = null,
+        windowTimeoutMs: Long = TranscriptionCoordinator.WINDOW_TIMEOUT_MS,
+        interpretationTimeoutMs: Long = TranscriptionCoordinator.INTERPRETATION_TIMEOUT_MS,
     ) = TranscriptionCoordinator(
         store = store,
         engine = engine,
@@ -258,6 +378,8 @@ class TranscriptionCoordinatorTest {
             FloatArray(((plan.endMs - plan.startMs) * 16).toInt())
         },
         interpreter = interpreter,
+        windowTimeoutMs = windowTimeoutMs,
+        interpretationTimeoutMs = interpretationTimeoutMs,
     )
 
     private fun span(window: AudioWindow, text: String) = TranscriptSpan(
