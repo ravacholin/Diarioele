@@ -33,6 +33,22 @@ class RecordingCoordinatorTest {
   coordinator.start(SessionId("s"));runCurrent()
   assertEquals(BlockCloseReason.INTERRUPTED,sessions.lastCloseReason);assertTrue(stopped)
  }
+ @Test fun `duplicate start while recording is ignored instead of crashing`()=runTest{
+  val sessions=FakeSessions();var sources=0;val coordinator=RecordingCoordinator(sessions,MemorySegments(),{sources++;HoldingSource()},Clock{0},this)
+  coordinator.start(SessionId("s"));runCurrent()
+  coordinator.start(SessionId("s"));runCurrent()
+  assertEquals(1,sources);assertEquals(1,sessions.startedBlocks)
+  coordinator.pause()
+ }
+ @Test fun `start after a microphone failure opens a new block`()=runTest{
+  val sessions=FakeSessions();var failing=true
+  val coordinator=RecordingCoordinator(sessions,MemorySegments(),{if(failing)FailingSource() else HoldingSource()},Clock{0},this)
+  coordinator.start(SessionId("s"));runCurrent()
+  failing=false
+  coordinator.start(SessionId("s"));runCurrent()
+  assertEquals(2,sessions.startedBlocks)
+  coordinator.pause();assertEquals(BlockCloseReason.PAUSED,sessions.lastCloseReason)
+ }
 }
 private class FiniteSource(private var remaining:Int):PcmSource{
  override suspend fun read(target:ShortArray):Int{if(remaining==0)return -1;val n=minOf(remaining,target.size);remaining-=n;return n}
@@ -48,11 +64,11 @@ private class MemorySegments:SegmentStore{
  override suspend fun repairOpenSegments()=emptyList<ReadySegment>();override suspend fun delete(segmentId:SegmentId)=DeleteResult.Deleted
 }
 private class FakeSessions:SessionRepository{
- private val state=MutableStateFlow<SessionAggregate?>(null);var lastCloseReason:BlockCloseReason?=null
+ private val state=MutableStateFlow<SessionAggregate?>(null);var lastCloseReason:BlockCloseReason?=null;var startedBlocks=0
  override fun observeActiveSession():Flow<SessionAggregate?> = state
  override fun observeLatestFinalizedRecording():Flow<RecordingReport?> = MutableStateFlow(null)
  override suspend fun createSession(level:CerLevel?)=SessionId("s")
- override suspend fun startBlock(sessionId:SessionId)=BlockId("b")
+ override suspend fun startBlock(sessionId:SessionId):BlockId{startedBlocks++;return BlockId("b$startedBlocks")}
  override suspend fun closeBlock(blockId:BlockId,reason:BlockCloseReason){lastCloseReason=reason}
  override suspend fun finalizeSession(sessionId:SessionId){}
  override suspend fun updateSessionState(sessionId:SessionId,state:SessionState){}
