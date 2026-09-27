@@ -25,9 +25,10 @@ import com.capo.diarioclase.processing.transcription.WindowTranscriptResult
 import com.capo.diarioclase.processing.transcription.WindowTranscriptionEngine
 import com.capo.diarioclase.recording.audio.ReadySegment
 import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 data class ProcessableSegment(
     val ready: ReadySegment,
@@ -128,6 +129,10 @@ class TranscriptionCoordinator(
     ),
     private val pcmReader: (File, AudioWindowPlan) -> FloatArray = PcmWindowReader::read,
     private val interpreter: SemanticInterpreter? = null,
+    // El límite por ventana cubre solo la transcripción local de esa ventana; la generación
+    // de la ficha tiene su propio tope y nunca se imputa a un segmento de audio.
+    private val windowTimeoutMs: Long = WINDOW_TIMEOUT_MS,
+    private val interpretationTimeoutMs: Long = INTERPRETATION_TIMEOUT_MS,
 ) {
     suspend fun process(
         sessionId: SessionId,
@@ -287,7 +292,7 @@ class TranscriptionCoordinator(
             )
             val windowSpanMs = (plan.confirmedUntilMs - confirmedUntilMs).coerceAtLeast(0L)
             val baseProcessedMs = processingRun.processedMs
-            val result = coroutineScope {
+            val result = withTimeoutOrNull(windowTimeoutMs) {
                 val progressChannel = Channel<Int>(Channel.CONFLATED)
                 launch {
                     var lastPercent = -1
@@ -306,7 +311,7 @@ class TranscriptionCoordinator(
                 } finally {
                     progressChannel.close()
                 }
-            }
+            } ?: WindowTranscriptResult.Failure(TranscriptionFailure.TIMEOUT, retryable = true)
             when (result) {
                 is WindowTranscriptResult.Success -> {
                     val segmentComplete = plan.endMs >= segment.ready.durationMs
@@ -361,8 +366,19 @@ class TranscriptionCoordinator(
         // La interpretación remota (router + fallback local) reemplaza a la extracción
         // directa cuando hay un intérprete compuesto; el modo se aplica siempre localmente
         // al proyectar, sin volver a llamar a la red.
-        val claims = interpreter?.interpret(sessionId, transcript, signals = store.loadSignals(sessionId))?.claims
-            ?: reducer.reduce(extractor.extract(transcript))
+        // Si la interpretación no termina a tiempo o falla, la ficha sale de la extracción
+        // local: el audio ya está confirmado y no hay nada que reintentar en Whisper.
+        val claims = interpreter?.let { semantic ->
+            try {
+                withTimeoutOrNull(interpretationTimeoutMs) {
+                    semantic.interpret(sessionId, transcript, signals = store.loadSignals(sessionId)).claims
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+        } ?: reducer.reduce(extractor.extract(transcript))
         val generatedDraft = materializer.materialize(sessionId.value, mode, claims)
         val draft = store.draft(sessionId)?.takeIf { it.userEdited }?.let { edited ->
             generatedDraft.copy(
@@ -388,26 +404,55 @@ class TranscriptionCoordinator(
         return ProcessingStepOutcome.Complete(draft)
     }
 
+    /**
+     * Registra en la base una falla que interrumpió al worker fuera de un resultado normal
+     * (timeout o error inesperado), para que la corrida no quede como "procesando".
+     *
+     * Solo se marca como fallado el segmento en curso si todavía le falta audio por confirmar.
+     * Si la transcripción ya estaba completa (la falla ocurrió generando la ficha), el audio y
+     * sus checkpoints quedan intactos y solo la corrida pasa a FAILED; reintentar vuelve a
+     * generar la ficha sin transcribir de nuevo.
+     */
     suspend fun failCurrent(
         sessionId: SessionId,
         failure: TranscriptionFailure,
         retryable: Boolean,
-    ): ProcessingStepOutcome.Failed? {
-        val run = store.run(sessionId) ?: return null
-        val segmentId = run.currentSegmentId?.let(::SegmentId) ?: return null
+    ) {
         val segments = store.segments(sessionId).sortedBy { it.ordinal }
-        val segment = segments.firstOrNull { it.ready.id == segmentId } ?: return null
-        return fail(
-            sessionId = sessionId,
-            segment = segment,
-            run = run,
-            knownCheckpoints = store.checkpoints(sessionId),
-            totalWindows = segments.sumOf {
-                AudioWindowPlanner.plan(it.ready.durationMs).size
-            },
-            checkpoint = store.checkpoint(segmentId),
-            failure = failure,
-            retryable = retryable,
+        val totalMs = segments.sumOf { it.ready.durationMs }
+        val run = store.run(sessionId) ?: TranscriptionRunEntity(
+            sessionId = sessionId.value,
+            state = TranscriptionRunState.PREPARING.name,
+            pauseRequested = false,
+            processedMs = 0,
+            totalMs = totalMs,
+            currentSegmentId = null,
+            failure = null,
+            updatedAtEpochMs = 0,
+        )
+        val segment = run.currentSegmentId
+            ?.let { id -> segments.firstOrNull { it.ready.id.value == id } }
+        if (segment != null && segment.state != SegmentState.TRANSCRIBED) {
+            fail(
+                sessionId = sessionId,
+                segment = segment,
+                run = run,
+                knownCheckpoints = store.checkpoints(sessionId),
+                totalWindows = segments.sumOf {
+                    AudioWindowPlanner.plan(it.ready.durationMs).size
+                },
+                checkpoint = store.checkpoint(segment.ready.id),
+                failure = failure,
+                retryable = retryable,
+            )
+            return
+        }
+        store.saveRun(
+            run.copy(
+                state = TranscriptionRunState.FAILED.name,
+                totalMs = totalMs,
+                failure = failure.name,
+            ),
         )
     }
 
@@ -459,4 +504,11 @@ class TranscriptionCoordinator(
         updated: TranscriptionCheckpointEntity,
     ) = checkpoints.filterNot { it.audioSegmentId == updated.audioSegmentId } + updated
 
+    companion object {
+        const val WINDOW_TIMEOUT_MS = 300_000L
+
+        // Holgura sobre el presupuesto remoto (InterpretationBudget.sessionMs) para la
+        // extracción local y las escrituras de telemetría.
+        const val INTERPRETATION_TIMEOUT_MS = 240_000L
+    }
 }

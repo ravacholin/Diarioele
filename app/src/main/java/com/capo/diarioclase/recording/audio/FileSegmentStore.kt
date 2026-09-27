@@ -9,8 +9,19 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
-class FileSegmentStore(private val root:File,private val listFiles:()->Array<File>?={root.listFiles()}):SegmentStore,CleanupFileStore {
+/**
+ * El segmento abierto se mantiene con un único descriptor mientras se graba (en lugar de
+ * reabrirlo en cada bloque de ~256 ms) y se sincroniza a disco cada [syncEveryBytes]
+ * (~2 s de audio) y siempre al cerrarlo. Cada `write` llega al kernel en el acto: si el
+ * proceso muere, el audio ya escrito sobrevive y `repairOpenSegments` lo recupera; solo un
+ * corte de energía podría perder, como máximo, el último intervalo sin sincronizar.
+ */
+class FileSegmentStore(private val root:File,private val syncEveryBytes:Long=SYNC_EVERY_BYTES,private val syncFile:(RandomAccessFile)->Unit={it.fd.sync()},private val listFiles:()->Array<File>?={root.listFiles()}):SegmentStore,CleanupFileStore {
+ companion object { const val SYNC_EVERY_BYTES=2L*SAMPLE_RATE*CHANNELS*STORED_BYTES_PER_SAMPLE }
+ private class OpenWriter(val file:RandomAccessFile){var unsyncedBytes=0L}
+ private val writers=ConcurrentHashMap<String,OpenWriter>()
  init { root.mkdirs() }
  override suspend fun open(blockId:BlockId,ordinal:Int)=withContext(Dispatchers.IO){
   val id=SegmentId(UUID.randomUUID().toString());val safe=blockId.value.replace(Regex("[^A-Za-z0-9-]"),"_")
@@ -21,10 +32,15 @@ class FileSegmentStore(private val root:File,private val listFiles:()->Array<Fil
  override suspend fun append(segment:OpenSegment,pcm:ShortArray,count:Int)=withContext(Dispatchers.IO){
   require(count in 0..pcm.size)
   val encoded=ByteArray(count){MuLawCodec.encode(pcm[it])}
-  RandomAccessFile(segment.path,"rw").use{f->f.seek(f.length());f.write(encoded);f.fd.sync()}
+  val writer=writers.getOrPut(segment.path){OpenWriter(RandomAccessFile(segment.path,"rw").also{it.seek(it.length())})}
+  try{
+   writer.file.write(encoded);writer.unsyncedBytes+=encoded.size
+   if(writer.unsyncedBytes>=syncEveryBytes){syncFile(writer.file);writer.unsyncedBytes=0}
+  }catch(error:Throwable){writers.remove(segment.path);runCatching{writer.file.close()};throw error}
  }
- override suspend fun close(segment:OpenSegment)=withContext(Dispatchers.IO){closeFile(File(segment.path),segment.id,segment.blockId)}
+ override suspend fun close(segment:OpenSegment)=withContext(Dispatchers.IO){releaseWriter(segment.path);closeFile(File(segment.path),segment.id,segment.blockId)}
  override suspend fun repairOpenSegments()=withContext(Dispatchers.IO){
+  writers.keys.toList().forEach{runCatching{releaseWriter(it)}}
   root.listFiles{f->f.name.endsWith(".open.wav")}?.sortedBy{it.name}?.mapNotNull{f->
    val parts=f.name.removeSuffix(".open.wav").split("__");if(parts.size<3){f.delete();null}else closeFile(f,SegmentId(parts.last()),BlockId(parts.dropLast(2).joinToString("__")))
   }?:emptyList()
@@ -36,6 +52,7 @@ class FileSegmentStore(private val root:File,private val listFiles:()->Array<Fil
  override suspend fun exists(segmentId:SegmentId)=withContext(Dispatchers.IO){
   listedFiles().any{it.name.endsWith("__${segmentId.value}.ready.wav")}
  }
+ private fun releaseWriter(path:String){val writer=writers.remove(path)?:return;try{if(writer.unsyncedBytes>0)syncFile(writer.file)}finally{writer.file.close()}}
  private fun listedFiles()=listFiles()?:throw IOException("No se pudo listar el audio temporal")
  private fun closeFile(file:File,id:SegmentId,blockId:BlockId):ReadySegment {
   // Un segmento abierto antes de la migración a µ-law conserva su cabecera PCM16 de 44 bytes:

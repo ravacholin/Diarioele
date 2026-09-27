@@ -27,7 +27,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
 
 /**
  * Título de la notificación según la fase (Fase 6, Q5): mientras se confirma audio,
@@ -62,9 +61,9 @@ class TranscriptionWorker(
         setForeground(createForegroundInfo(sessionId, null))
         return try {
             while (!isStopped) {
-                when (val outcome = withTimeout(WINDOW_TIMEOUT_MS) {
-                    app.transcriptionCoordinator.processNext(sessionId, mode)
-                }) {
+                // El límite por ventana vive en el coordinator y cubre solo la transcripción
+                // local: la generación de la ficha no puede hacer fallar un segmento sano.
+                when (val outcome = app.transcriptionCoordinator.processNext(sessionId, mode)) {
                     is ProcessingStepOutcome.WindowSaved -> {
                         setProgress(progressData(outcome.progress))
                         setForeground(createForegroundInfo(sessionId, outcome.progress))
@@ -79,21 +78,34 @@ class TranscriptionWorker(
             }
             Result.success()
         } catch (_: TimeoutCancellationException) {
-            app.transcriptionCoordinator.failCurrent(
-                sessionId,
-                TranscriptionFailure.TIMEOUT,
-                retryable = true,
-            )
-            Result.failure(errorData(TranscriptionFailure.TIMEOUT, retryable = true))
+            recordFailure(sessionId, TranscriptionFailure.TIMEOUT)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Throwable) {
-            Result.failure(errorData(TranscriptionFailure.INTERNAL, retryable = true))
+            recordFailure(sessionId, TranscriptionFailure.INTERNAL)
         } finally {
             if (isStopped) {
                 runCatching { app.whisperEngine.cancel() }
             }
         }
+    }
+
+    /**
+     * Persiste la falla antes de terminar para que la corrida no quede como "procesando" en
+     * la interfaz. Si la propia base falla, el resultado del worker igual informa el error.
+     */
+    private suspend fun recordFailure(
+        sessionId: SessionId,
+        failure: TranscriptionFailure,
+    ): Result {
+        try {
+            app.transcriptionCoordinator.failCurrent(sessionId, failure, retryable = true)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            // Best-effort: sin base no hay dónde registrarla.
+        }
+        return Result.failure(errorData(failure, retryable = true))
     }
 
     private fun createForegroundInfo(
@@ -155,7 +167,6 @@ class TranscriptionWorker(
         const val KEY_TOTAL_MS = "total_ms"
         const val CHANNEL_ID = "diarioclase_transcription"
         const val NOTIFICATION_ID = 2_041
-        const val WINDOW_TIMEOUT_MS = 300_000L
 
         fun request(
             sessionId: SessionId,
